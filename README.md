@@ -37,6 +37,10 @@ Tout se rÃ¨gle par variables dâ€™environnement.
 
 Le mot de passe nâ€™est jamais affichÃ© ni journalisÃ©.
 
+## Sauvegarde
+
+`npm run backup -- <dossier de sortie>` crée un dossier `fdl-backup-<date>` contenant `database.dump` (`pg_dump` au format custom), `files/` (copie de `FDL_DATA_DIR`, sans `tmp/` ni `backups/`) et `manifest.json` (version du schéma, date, somme SHA-256 de chaque fichier). Le manifeste est écrit en dernier : sans lui, la sauvegarde est incomplète. La base sauvegardée est `PGDATABASE` ; la commande affiche le chemin créé, ou une ligne d’erreur et le code 1.
+
 ## Documentation
 
 - [Carte des capacitÃ©s](CAPABILITIES.md)
