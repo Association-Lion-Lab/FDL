@@ -12,7 +12,7 @@ Le futur service de scan PDF/photo est un autre projet. Aucun OCR, PDF, scan de 
 
 ## Forme du service
 
-Le socle utilise un seul processus Node.js et les API standard de Node. Aucune dépendance, base de données ou interface web n’est ajoutée tant qu’une capacité ne l’exige pas.
+Le socle utilise un seul processus Node.js et les API standard de Node. Il utilise PostgreSQL et le client `pg` ; toute autre dépendance, comme l’interface web, n’est ajoutée que lorsqu’une capacité l’exige.
 
 Modules prévus :
 

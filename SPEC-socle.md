@@ -89,7 +89,7 @@ Conventions : noms anglais dans le code, messages destinés aux utilisateurs en 
 
 ### Configuration
 
-Une configuration invalide arrête le processus avant l’ouverture du port. Les chemins sont résolus explicitement ; un répertoire manquant peut être créé seulement à l’intérieur du répertoire de données configuré. Aucun secret n’est accepté dans une URL ou journalisé.
+Une configuration invalide arrête le processus avant l’ouverture du port. Les chemins sont résolus explicitement ; `FDL_DATA_DIR` doit être un chemin absolu et exister déjà (l’application ne le crée jamais, ce qui évite de créer un chemin mal saisi) ; seuls ses sous-répertoires peuvent être créés par l’application. Aucun secret n’est accepté dans une URL ou journalisé.
 
 ### Santé
 
