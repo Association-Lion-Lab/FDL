@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, it } from 'node:test';
+
+import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from '../src/db.js';
+import { createTestDatabase } from './helpers/db.js';
+
+const cleanups = [];
+
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+async function freshDatabase() {
+  const db = await createTestDatabase();
+  cleanups.push(db.drop);
+  return db;
+}
+
+describe('migrate', () => {
+  it('migrates a new database and installs unaccent', async () => {
+    const { pool } = await freshDatabase();
+    assert.equal(await readSchemaVersion(pool), 0);
+    assert.deepEqual(await migrate(pool), { from: 0, to: LATEST_SCHEMA_VERSION });
+    assert.equal(await readSchemaVersion(pool), LATEST_SCHEMA_VERSION);
+    const { rowCount } = await pool.query("SELECT 1 FROM pg_extension WHERE extname = 'unaccent'");
+    assert.equal(rowCount, 1);
+  });
+
+  it('is idempotent', async () => {
+    const { pool } = await freshDatabase();
+    await migrate(pool);
+    assert.deepEqual(await migrate(pool), { from: LATEST_SCHEMA_VERSION, to: LATEST_SCHEMA_VERSION });
+  });
+
+  it('serializes concurrent migrations', async () => {
+    const { pool, database } = await freshDatabase();
+    const second = createPool({ database });
+    cleanups.push(() => second.end());
+    const results = await Promise.all([migrate(pool), migrate(second)]);
+    assert.equal(results.length, 2);
+    assert.equal(await readSchemaVersion(pool), LATEST_SCHEMA_VERSION);
+  });
+
+  it('refuses a database newer than the code without changing it', async () => {
+    const { pool } = await freshDatabase();
+    await migrate(pool);
+    await pool.query('UPDATE fdl_schema SET version = $1', [LATEST_SCHEMA_VERSION + 1]);
+    await assert.rejects(migrate(pool), { code: 'schema_incompatible' });
+    assert.equal(await readSchemaVersion(pool), LATEST_SCHEMA_VERSION + 1);
+  });
+
+  it('rolls everything back when a migration fails', async () => {
+    const { pool } = await freshDatabase();
+    const dir = await mkdtemp(join(tmpdir(), 'fdl-migrations-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(join(dir, '0001-ok.sql'), 'CREATE TABLE t (id integer);');
+    await writeFile(join(dir, '0002-bad.sql'), 'THIS IS NOT SQL;');
+    await assert.rejects(migrate(pool, { dir }));
+    assert.equal(await readSchemaVersion(pool), 0);
+    const { rows } = await pool.query("SELECT to_regclass('public.t') AS t");
+    assert.equal(rows[0].t, null);
+  });
+});
