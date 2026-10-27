@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.js';
 import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from './db.js';
 import { createApp, sendError, sendJson } from './http.js';
+import { createLimiter } from './ratelimit.js';
+import { authRoutes } from './routes/auth.js';
 import { loadSession } from './sessions.js';
 import { parseCookies, redirect } from './web.js';
 
@@ -45,6 +47,7 @@ export function buildBefore(pool, config) {
 
 export function buildRoutes(pool, log = console.error, config) {
   return {
+    ...authRoutes(pool, config, { limiter: createLimiter() }),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);
