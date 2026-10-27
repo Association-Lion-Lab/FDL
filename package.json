@@ -15,6 +15,10 @@
     "node": ">=22"
   },
   "dependencies": {
-    "pg": "^8.23.1"
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
+    "otpauth": "^9.5.2",
+    "pg": "^8.23.1",
+    "uqr": "^0.1.3"
   }
 }

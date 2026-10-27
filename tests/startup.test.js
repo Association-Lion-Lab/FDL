@@ -36,7 +36,7 @@ function baseEnv(extra) {
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith('PG')) env[key] = value;
   }
-  return { ...env, ...extra };
+  return { FDL_ORIGIN: 'http://localhost', FDL_SECRET_KEY: '0'.repeat(64), ...env, ...extra };
 }
 
 // Spawns the server; output is captured, never piped to the test runner.

@@ -29,6 +29,8 @@ services:
       PGDATABASE: ${PGDATABASE}
       PGUSER: ${PGUSER}
       PGPASSWORD: ${PGPASSWORD}
+      FDL_ORIGIN: https://${FDL_DOMAIN}
+      FDL_SECRET_KEY: ${FDL_SECRET_KEY}
     volumes:
       - fdl-data:/data
 

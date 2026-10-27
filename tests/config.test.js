@@ -6,7 +6,8 @@ import { after, before, describe, it } from 'node:test';
 
 import { loadConfig } from '../src/config.js';
 
-const pg = { PGHOST: 'db', PGDATABASE: 'fdl', PGUSER: 'fdl' };
+const KEY = '0'.repeat(64);
+const pg = { PGHOST: 'db', PGDATABASE: 'fdl', PGUSER: 'fdl', FDL_ORIGIN: 'http://localhost', FDL_SECRET_KEY: KEY };
 let tmp;
 
 before(() => {
@@ -21,6 +22,7 @@ describe('loadConfig', () => {
   it('returns defaults for a minimal valid environment', () => {
     assert.deepEqual(loadConfig({ ...pg, FDL_DATA_DIR: tmp }), {
       host: '127.0.0.1', port: 3000, dataDir: tmp, pgBinDir: '',
+      origin: 'http://localhost', rpID: 'localhost', secretKey: Buffer.alloc(32),
     });
   });
 
@@ -68,5 +70,37 @@ describe('loadConfig', () => {
     assert.throws(() => loadConfig(base), /PGHOST/);
     assert.throws(() => loadConfig({ ...base, PGHOST: 'db' }), /PGDATABASE/);
     assert.throws(() => loadConfig({ ...base, PGHOST: 'db', PGDATABASE: 'fdl' }), /PGUSER/);
+  });
+  it('requires FDL_ORIGIN', () => {
+    const { FDL_ORIGIN, ...rest } = pg;
+    assert.throws(() => loadConfig({ ...rest, FDL_DATA_DIR: tmp }), /FDL_ORIGIN/);
+  });
+
+  it('rejects an invalid FDL_ORIGIN', () => {
+    for (const bad of ['fdl.example.org', 'ftp://x', 'https://x/chemin', 'https://u:p@x', 'https://x/?a=1']) {
+      assert.throws(() => loadConfig({ ...pg, FDL_DATA_DIR: tmp, FDL_ORIGIN: bad }), /FDL_ORIGIN/, bad);
+    }
+  });
+
+  it('normalizes FDL_ORIGIN and derives rpID', () => {
+    const config = loadConfig({ ...pg, FDL_DATA_DIR: tmp, FDL_ORIGIN: 'https://fdl.example.org/' });
+    assert.equal(config.origin, 'https://fdl.example.org');
+    assert.equal(config.rpID, 'fdl.example.org');
+  });
+
+  it('requires a 64-character hexadecimal FDL_SECRET_KEY without echoing it', () => {
+    const { FDL_SECRET_KEY, ...rest } = pg;
+    assert.throws(() => loadConfig({ ...rest, FDL_DATA_DIR: tmp }), /FDL_SECRET_KEY/);
+    for (const bad of ['abcd', 'z'.repeat(64), 'a'.repeat(65)]) {
+      assert.throws(() => loadConfig({ ...pg, FDL_DATA_DIR: tmp, FDL_SECRET_KEY: bad }), (error) => {
+        assert.match(error.message, /FDL_SECRET_KEY/);
+        assert.ok(!error.message.includes(bad));
+        return true;
+      });
+    }
+  });
+
+  it('decodes FDL_SECRET_KEY to 32 bytes', () => {
+    assert.equal(loadConfig({ ...pg, FDL_DATA_DIR: tmp, FDL_SECRET_KEY: 'ab'.repeat(32) }).secretKey.length, 32);
   });
 });
