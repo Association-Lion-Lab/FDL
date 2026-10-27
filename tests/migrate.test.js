@@ -84,6 +84,22 @@ describe('migrate', () => {
     assert.equal(await readSchemaVersion(pool), 0);
   });
 
+  it('creates the access schema with a case-insensitive unique email', async () => {
+    const { pool } = await freshDatabase();
+    await migrate(pool);
+    assert.ok(LATEST_SCHEMA_VERSION >= 2);
+    const tables = ['accounts', 'access_links', 'sessions', 'totp_secrets', 'passkeys', 'recovery_codes', 'admin_log'];
+    const { rows } = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1)",
+      [tables]
+    );
+    assert.deepEqual(rows.map((r) => r.table_name).sort(), [...tables].sort());
+    const insert = (email) =>
+      pool.query("INSERT INTO accounts (email, display_name, password_hash, role) VALUES ($1, 'Bob', 'h', 'member')", [email]);
+    await insert('Bob@x.fr');
+    await assert.rejects(insert('bob@x.fr'), { code: '23505' });
+  });
+
   it('logs pool errors by code only instead of crashing', async () => {
     const { database } = await freshDatabase();
     const lines = [];

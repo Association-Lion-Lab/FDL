@@ -113,7 +113,7 @@ test('configuration valide : /ready répond 200', { timeout: TIMEOUT }, async ()
           }
         }
         assert.equal(status, 200, run.stderr);
-        assert.match(run.stdout, /migrations : 0 → 1/);
+        assert.match(run.stdout, /migrations : 0 → 2/);
       } finally {
         run.child.kill();
         await run.exited;
