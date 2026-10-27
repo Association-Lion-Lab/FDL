@@ -51,8 +51,8 @@ describe('GET /ready', () => {
     error: { code: 'not_ready', message: 'Service momentanément indisponible.' },
   };
 
-  async function get(pool, path) {
-    const server = createApp({ routes: buildRoutes(pool), log: () => {} }).listen(0, '127.0.0.1');
+  async function get(pool, path, logs = []) {
+    const server = createApp({ routes: buildRoutes(pool, (line) => logs.push(line)), log: () => {} }).listen(0, '127.0.0.1');
     servers.push(server);
     await new Promise((resolve) => server.once('listening', resolve));
     const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`);
@@ -74,8 +74,11 @@ describe('GET /ready', () => {
   it('returns 503 not_ready when the database is not migrated', async () => {
     const testDb = await createTestDatabase();
     try {
-      const { response, text } = await get(testDb.pool, '/ready');
+      const logs = [];
+      const { response, text } = await get(testDb.pool, '/ready', logs);
       assert.equal(response.status, 503);
+      assert.equal(logs.length, 1);
+      assert.match(logs[0], /^ready: schema 0 attendu \d+$/);
       assert.deepEqual(JSON.parse(text), notReady);
     } finally {
       await testDb.drop();
@@ -86,12 +89,27 @@ describe('GET /ready', () => {
     const database = `fdl_missing_${randomBytes(8).toString('hex')}`;
     const pool = createPool({ database });
     try {
-      const { response, text } = await get(pool, '/ready');
+      const logs = [];
+      const { response, text } = await get(pool, '/ready', logs);
+      assert.equal(logs.length, 1);
+      assert.match(logs[0], /^ready: /);
       assert.equal(response.status, 503);
       assert.deepEqual(JSON.parse(text), notReady);
       assert.ok(!text.includes(database));
+      assert.ok(process.env.PGHOST);
       assert.ok(!text.includes(process.env.PGHOST));
       assert.ok(!/does not exist|ECONNREFUSED|password/i.test(text));
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
+describe('createPool', () => {
+  it('bounds the connection time', async () => {
+    const pool = createPool();
+    try {
+      assert.equal(pool.options.connectionTimeoutMillis, 2000);
     } finally {
       await pool.end();
     }

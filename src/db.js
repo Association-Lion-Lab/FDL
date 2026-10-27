@@ -21,7 +21,8 @@ export const LATEST_SCHEMA_VERSION = Math.max(0, ...listMigrations(MIGRATIONS_DI
 
 // Lit les variables PG* (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE).
 export function createPool({ database } = {}) {
-  return new pg.Pool(database ? { database } : {});
+  // Bounded connect time so /ready answers 503 instead of hanging on a dropped network.
+  return new pg.Pool({ connectionTimeoutMillis: 2000, ...(database ? { database } : {}) });
 }
 
 export async function readSchemaVersion(db) {

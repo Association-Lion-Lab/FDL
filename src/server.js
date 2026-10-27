@@ -4,12 +4,19 @@ import { parsePort } from './config.js';
 import { LATEST_SCHEMA_VERSION, readSchemaVersion } from './db.js';
 import { createApp, sendError, sendJson } from './http.js';
 
-export function buildRoutes(pool) {
+export function buildRoutes(pool, log = console.error) {
   return {
     'GET /health': (request, response) => sendJson(response, 200, { status: 'ok' }),
     'GET /ready': async (request, response) => {
-      // Any failure (connection included) is reported as not ready, without detail.
-      const ready = await readSchemaVersion(pool).then((version) => version === LATEST_SCHEMA_VERSION, () => false);
+      // Failures are logged for the operator, never put in the HTTP body.
+      let ready = false;
+      try {
+        const version = await readSchemaVersion(pool);
+        ready = version === LATEST_SCHEMA_VERSION;
+        if (!ready) log(`ready: schema ${version} attendu ${LATEST_SCHEMA_VERSION}`);
+      } catch (error) {
+        log(`ready: ${error?.code ?? 'inconnu'} ${error?.message}`);
+      }
       if (ready) sendJson(response, 200, { status: 'ok' });
       else sendError(response, 503, 'not_ready', 'Service momentanément indisponible.');
     },
