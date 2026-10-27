@@ -34,6 +34,11 @@ echo "Téléchargement et démarrage de la nouvelle image..."
 docker compose pull app
 docker compose up -d app
 
+if [ "$(docker inspect --format '{{.Image}}' "$(docker compose ps -q app)")" = "$current_id" ]; then
+  echo "Aucune nouvelle image : rien à mettre à jour."
+  exit 0
+fi
+
 echo "Vérification de /ready (60 s maximum)..."
 if wait_ready; then
   echo "Mise à jour réussie."
@@ -46,7 +51,9 @@ if wait_ready; then
   echo "La version précédente tourne de nouveau. La mise à jour est annulée. Voir : docker compose logs app" >&2
 else
   echo "La version précédente ne démarre pas non plus : le schéma de la base est probablement plus récent qu'elle." >&2
-  echo "Restaurez la sauvegarde faite avant la mise à jour : $backup_path" >&2
-  echo "Procédure : docs/EXPLOITATION.md, section Restauration." >&2
+  echo "La sauvegarde faite avant la mise à jour est dans le volume : $backup_path" >&2
+  echo "Copiez-la d'abord hors du volume (ne lancez pas docker compose down -v) :" >&2
+  echo "  mkdir -p sauvegardes && docker cp \"$(docker compose ps -aq app)\":$backup_path ./sauvegardes/" >&2
+  echo "Puis suivez docs/EXPLOITATION.md, section « Après un échec de mise à jour »." >&2
 fi
 exit 1

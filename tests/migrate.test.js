@@ -63,4 +63,33 @@ describe('migrate', () => {
     const { rows } = await pool.query("SELECT to_regclass('public.t') AS t");
     assert.equal(rows[0].t, null);
   });
+
+  it('rejects a misnamed migration file and leaves the database unchanged', async () => {
+    const { pool } = await freshDatabase();
+    const dir = await mkdtemp(join(tmpdir(), 'fdl-migrations-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(join(dir, '0001-ok.sql'), 'CREATE TABLE t (id integer);');
+    await writeFile(join(dir, '0002_bad.sql'), 'CREATE TABLE u (id integer);');
+    await assert.rejects(migrate(pool, { dir }), /0002_bad.sql/);
+    assert.equal(await readSchemaVersion(pool), 0);
+  });
+
+  it('rejects a duplicated version number', async () => {
+    const { pool } = await freshDatabase();
+    const dir = await mkdtemp(join(tmpdir(), 'fdl-migrations-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    await writeFile(join(dir, '0001-a.sql'), 'CREATE TABLE a (id integer);');
+    await writeFile(join(dir, '0001-b.sql'), 'CREATE TABLE b (id integer);');
+    await assert.rejects(migrate(pool, { dir }), /0001/);
+    assert.equal(await readSchemaVersion(pool), 0);
+  });
+
+  it('logs pool errors by code only instead of crashing', async () => {
+    const { database } = await freshDatabase();
+    const lines = [];
+    const pool = createPool({ database, log: (line) => lines.push(line) });
+    cleanups.push(() => pool.end());
+    pool.emit('error', Object.assign(new Error('secret detail'), { code: '57P01' }));
+    assert.deepEqual(lines, ['db: 57P01']);
+  });
 });

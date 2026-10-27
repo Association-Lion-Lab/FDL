@@ -34,7 +34,7 @@ export async function main(env = process.env) {
     return null;
   }
 
-  const pool = createPool();
+  const pool = createPool({ log: console.error });
   const fail = async (message) => {
     console.error(message);
     process.exitCode = 1;
@@ -43,7 +43,8 @@ export async function main(env = process.env) {
   };
 
   try {
-    await migrate(pool);
+    const { from, to } = await migrate(pool);
+    if (from !== to) console.log(`migrations : ${from} → ${to}`);
   } catch (error) {
     // Never print pg's message: it can echo connection details.
     return fail(

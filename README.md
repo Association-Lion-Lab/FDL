@@ -4,7 +4,7 @@ Une base communautaire pour partager, découvrir et importer des recettes dans M
 
 ## État
 
-Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP sans dépendance externe et un contrôle de santé. Aucun compte, catalogue, stockage, envoi d’e-mail ou déploiement n’est encore disponible.
+Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. Aucun compte, catalogue, stockage d’images ni envoi d’e-mail n’est encore disponible.
 
 FDL reste indépendant de Manger! et du futur service de scan PDF/photo. Manger! doit continuer à fonctionner sans FDL. Seules les contributions volontairement soumises à FDL y seront conservées.
 
@@ -14,10 +14,9 @@ Prérequis : Node.js 22 ou plus récent.
 
 ```powershell
 npm run test:docker
-npm start
 ```
 
-Les tests tournent dans Docker (PostgreSQL 18 et `pg_dump` 18 inclus) : rien à installer d’autre que Docker. Lancé hors du conteneur, `npm test` n’a pas de base à sa disposition.
+Les tests tournent dans Docker (PostgreSQL 18 et `pg_dump` 18 inclus) : rien à installer d’autre que Docker. Lancé hors du conteneur, `npm test` n’a pas de base à sa disposition. Pour faire tourner le service (configuration, `docker compose`), voir [docs/EXPLOITATION.md](docs/EXPLOITATION.md) ; `npm start` seul échoue sans `FDL_DATA_DIR` et `PG*`.
 
 Le serveur écoute par défaut sur `http://127.0.0.1:3000`. `GET /health` indique que le processus tourne, `GET /ready` que la base est joignable et à jour. Au démarrage, FDL applique les migrations ; si la configuration est invalide ou la base injoignable, il affiche une ligne d’erreur et s’arrête avec le code 1.
 
@@ -51,5 +50,6 @@ Le mot de passe n’est jamais affiché ni journalisé.
 - [Spécification du socle](SPEC-socle.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Contrats initiaux](docs/CONTRATS.md)
+- [Exploitation](docs/EXPLOITATION.md)
 
 La licence du code et celle des contributions restent deux décisions distinctes à prendre avant toute publication réelle.

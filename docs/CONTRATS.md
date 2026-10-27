@@ -39,7 +39,7 @@ Réponse `200` :
 { "status": "ok" }
 ```
 
-Ce contrôle confirme uniquement que le processus HTTP répond. Il ne prétend pas valider une base, un stockage d’images ou un déploiement qui n’existent pas encore.
+Ce contrôle confirme uniquement que le processus HTTP répond. Il ne prétend pas valider le stockage d’images (qui n’existe pas encore) ni la validité d’un déploiement. La base est vérifiée par `/ready`.
 
 ### `GET /ready`
 

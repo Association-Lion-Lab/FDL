@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -78,4 +78,16 @@ test('createBackup works when outDir is inside the data directory', async () => 
   assert.deepEqual(Object.keys(manifest.files).sort(), ['database.dump', 'files/photos/a.jpg']);
   assert.equal(manifest.files['files/photos/a.jpg'], sha256('photo-bytes'));
   assert.deepEqual(await readdir(join(dir, 'files')), ['photos']);
+});
+
+test('createBackup rejects a symlink in the data directory and writes no manifest', async () => {
+  const linkedData = join(root, 'data-link');
+  await mkdir(linkedData);
+  await symlink('/etc/hostname', join(linkedData, 'lien'));
+  const outDir = join(root, 'out-link');
+  await assert.rejects(
+    createBackup({ config: { dataDir: linkedData, pgBinDir: process.env.FDL_PG_BIN_DIR || '' }, database: testDb.database, outDir }),
+    /lien/
+  );
+  assert.deepEqual(await readdir(outDir), []);
 });

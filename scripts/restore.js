@@ -15,7 +15,7 @@ const EXCLUDED = new Set(['tmp', 'backups']);
 
 const OWN_CODES = new Set(['backup_invalid', 'backup_corrupted', 'schema_incompatible', 'target_not_empty', 'restore_failed', 'files_copy_failed']);
 
-const fail =(code, message) => Object.assign(new Error(message), { code });
+const fail = (code, message) => Object.assign(new Error(message), { code });
 
 async function sha256(path) {
   const hash = createHash('sha256');

@@ -10,19 +10,31 @@ const MIGRATION_FILE = /^(\d{4})-.+\.sql$/;
 const MIGRATION_LOCK = 7302231;
 
 function listMigrations(dir) {
-  return readdirSync(dir)
-    .map((file) => ({ file, match: MIGRATION_FILE.exec(file) }))
-    .filter(({ match }) => match)
-    .map(({ file, match }) => ({ file, version: Number(match[1]) }))
+  const migrations = readdirSync(dir)
+    .filter((file) => file.endsWith('.sql'))
+    .map((file) => {
+      const match = MIGRATION_FILE.exec(file);
+      if (!match) throw new Error(`Migration ${file} : le nom doit suivre le format NNNN-nom.sql.`);
+      return { file, version: Number(match[1]) };
+    })
     .sort((a, b) => a.version - b.version);
+  migrations.forEach(({ file, version }, i) => {
+    if (i && migrations[i - 1].version === version) {
+      throw new Error(`Migration ${file} : le numéro ${String(version).padStart(4, '0')} est déjà utilisé par ${migrations[i - 1].file}.`);
+    }
+  });
+  return migrations;
 }
 
 export const LATEST_SCHEMA_VERSION = Math.max(0, ...listMigrations(MIGRATIONS_DIR).map((m) => m.version));
 
 // Lit les variables PG* (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE).
-export function createPool({ database } = {}) {
+// Avec `log`, une connexion inactive coupée est journalisée (code seul) au lieu de tuer le processus.
+export function createPool({ database, log } = {}) {
   // Bounded connect time so /ready answers 503 instead of hanging on a dropped network.
-  return new pg.Pool({ connectionTimeoutMillis: 2000, ...(database ? { database } : {}) });
+  const pool = new pg.Pool({ connectionTimeoutMillis: 2000, ...(database ? { database } : {}) });
+  if (log) pool.on('error', (error) => log(`db: ${error?.code ?? 'inconnu'}`));
+  return pool;
 }
 
 export async function readSchemaVersion(db) {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -25,6 +25,21 @@ export async function createBackup({ config, database, outDir }) {
       schemaVersion = await readSchemaVersion(pool);
     } finally {
       await pool.end();
+    }
+
+    // Refuse ce que la restauration rejetterait (lien, socket...) : rien n'est écrit, pas de manifeste.
+    for (const name of await readdir(config.dataDir)) {
+      if (EXCLUDED.has(name)) continue;
+      const top = join(config.dataDir, name);
+      const entries = (await lstat(top)).isDirectory()
+        ? (await readdir(top, { recursive: true, withFileTypes: true })).map((e) => join(e.parentPath, e.name))
+        : [];
+      for (const path of [top, ...entries]) {
+        const stat = await lstat(path);
+        if (!stat.isFile() && !stat.isDirectory()) {
+          throw new Error(`${relative(config.dataDir, path)} n'est ni un fichier ni un dossier ordinaire.`);
+        }
+      }
     }
 
     // Mot de passe via PGPASSWORD hérité de l'environnement, jamais en argument.
