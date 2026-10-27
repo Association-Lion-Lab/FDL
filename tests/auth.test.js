@@ -61,10 +61,10 @@ describe('limiter', () => {
 });
 
 describe('limiter bounds', () => {
-  it('refuses new keys once full instead of growing', () => {
+  it('evicts the oldest key once full instead of growing or refusing', () => {
     const limiter = createLimiter({ max: 2, windowMs: 1000, maxKeys: 3 });
     for (const k of ['a', 'b', 'c']) assert.equal(limiter.hit(k), false);
-    assert.equal(limiter.hit('d'), true);
+    assert.equal(limiter.hit('d'), false);
     assert.equal(limiter.size, 3);
     assert.equal(limiter.hit('a'), false);
   });
@@ -291,6 +291,13 @@ describe('sign-in and sign-out', () => {
       last = await post('/connexion', { email: `f${i}@example.org`, password: 'x' }, { 'x-forwarded-for': '1.2.3.4, ' });
     }
     assert.equal(last.status, 429);
+    const socket = await fetch(`${base}/connexion`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email: 'h@example.org', password: 'x' }),
+    });
+    assert.equal(socket.status, 429);
     const other = await post('/connexion', { email: 'g@example.org', password: 'x' }, { 'x-forwarded-for': '7.7.7.7' });
     assert.equal(other.status, 200);
   });
