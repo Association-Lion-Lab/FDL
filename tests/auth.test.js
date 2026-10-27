@@ -5,6 +5,7 @@ import { createLink, hashPassword } from '../src/accounts.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
 import { createLimiter } from '../src/ratelimit.js';
+import { authRoutes } from '../src/routes/auth.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
 import { createTestDatabase } from './helpers/db.js';
 
@@ -55,6 +56,16 @@ describe('limiter', () => {
     assert.equal(limiter.hit('a'), true);
     assert.equal(limiter.hit('b'), false);
     limiter.reset('a');
+    assert.equal(limiter.hit('a'), false);
+  });
+});
+
+describe('limiter bounds', () => {
+  it('refuses new keys once full instead of growing', () => {
+    const limiter = createLimiter({ max: 2, windowMs: 1000, maxKeys: 3 });
+    for (const k of ['a', 'b', 'c']) assert.equal(limiter.hit(k), false);
+    assert.equal(limiter.hit('d'), true);
+    assert.equal(limiter.size, 3);
     assert.equal(limiter.hit('a'), false);
   });
 });
@@ -209,5 +220,78 @@ describe('sign-in and sign-out', () => {
     assert.match(response.headers.get('set-cookie'), /Max-Age=0/);
     assert.equal((await get('/', cookie)).status, 303);
     assert.equal((await pool.query('SELECT 1 FROM sessions')).rowCount, 0);
+  });
+
+  it('does not grow the limiter once the IP is tripped, and bounds the email length', async () => {
+    const limiter = createLimiter();
+    const own = createApp({ routes: authRoutes(pool, config, { limiter }), log: () => {}, before: buildBefore(pool, config) })
+      .listen(0, '127.0.0.1');
+    await new Promise((resolve) => own.once('listening', resolve));
+    const url = `http://127.0.0.1:${own.address().port}/connexion`;
+    const send = (email, ip) => fetch(url, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { origin: config.origin, 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip },
+      body: new URLSearchParams({ email, password: 'x' }),
+    });
+    try {
+      for (let i = 0; i < 10; i++) await send(`e${i}@example.org`, '4.4.4.4');
+      const before = limiter.size;
+      for (let i = 0; i < 1000; i++) assert.equal((await send(`z${i}@example.org`, '4.4.4.4')).status, 429);
+      assert.equal(limiter.size, before);
+      const long = await send(`${'a'.repeat(300)}@example.org`, '5.5.5.5');
+      assert.equal(long.status, 200);
+      assert.equal(limiter.size, before + 1);
+    } finally {
+      await new Promise((resolve) => own.close(resolve));
+    }
+  });
+
+  it('a successful login does not clear the IP counter', async () => {
+    await member();
+    const headers = { 'x-forwarded-for': '6.6.6.6' };
+    for (let i = 0; i < 9; i++) await post('/connexion', { email: `o${i}@example.org`, password: 'x' }, headers);
+    const ok = await post('/connexion', { email: 'lea@example.org', password: PASSWORD }, headers);
+    assert.equal(ok.status, 303);
+    assert.equal((await post('/connexion', { email: 'p@example.org', password: 'x' }, headers)).status, 429);
+  });
+
+  it('gives staff a 12 hour cookie and members 30 days', async () => {
+    await member('staff@example.org', 'moderator');
+    await member('lea@example.org');
+    const staff = await post('/connexion', { email: 'staff@example.org', password: PASSWORD });
+    assert.match(staff.headers.get('set-cookie'), /Max-Age=43200/);
+    const plain = await post('/connexion', { email: 'lea@example.org', password: PASSWORD });
+    assert.match(plain.headers.get('set-cookie'), /Max-Age=2592000/);
+  });
+
+  it('closes the carried session when signing in again', async () => {
+    await member();
+    const first = cookieOf(await post('/connexion', { email: 'lea@example.org', password: PASSWORD }));
+    assert.equal((await get('/', first)).status, 200);
+    const second = cookieOf(await post('/connexion', { email: 'lea@example.org', password: PASSWORD }, { cookie: first }));
+    assert.equal((await get('/', first)).status, 303);
+    assert.equal((await get('/', second)).status, 200);
+  });
+
+  it('closes the carried session when signing up', async () => {
+    await member();
+    const first = cookieOf(await post('/connexion', { email: 'lea@example.org', password: PASSWORD }));
+    const code = await createLink(pool, { kind: 'invitation' });
+    const response = await post('/inscription', {
+      code, email: 'new@example.org', displayName: 'Zoé', password: PASSWORD, confirm: PASSWORD,
+    }, { cookie: first });
+    assert.equal(response.status, 303);
+    assert.equal((await get('/', first)).status, 303);
+  });
+
+  it('falls back to the socket address when X-Forwarded-For ends empty', async () => {
+    let last;
+    for (let i = 0; i < 11; i++) {
+      last = await post('/connexion', { email: `f${i}@example.org`, password: 'x' }, { 'x-forwarded-for': '1.2.3.4, ' });
+    }
+    assert.equal(last.status, 429);
+    const other = await post('/connexion', { email: 'g@example.org', password: 'x' }, { 'x-forwarded-for': '7.7.7.7' });
+    assert.equal(other.status, 200);
   });
 });

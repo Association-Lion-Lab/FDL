@@ -19,7 +19,8 @@ const dummyHash = await hashPassword('mot de passe factice');
 // ponytail: falsifiable si l'app est exposée sans proxy ; la limite par e-mail tient quand même.
 function clientIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',').at(-1).trim();
+  const last = typeof forwarded === 'string' ? forwarded.split(',').at(-1).trim() : '';
+  if (last) return last;
   return request.socket.remoteAddress ?? 'inconnue';
 }
 
@@ -120,6 +121,7 @@ export function authRoutes(pool, config, { limiter }) {
       if (result.error) return signupPage(response, code, values, SIGNUP_ERRORS[result.error], 400);
       const { rows: [account] } = await pool.query('SELECT role FROM accounts WHERE id = $1', [result.accountId]);
       const staff = account.role === 'moderator' || account.role === 'admin';
+      if (request.session) await closeSession(pool, request.session.tokenHash);
       const token = await openSession(pool, result.accountId, { mfaOk: true });
       redirect(
         response,
@@ -151,23 +153,30 @@ export function authRoutes(pool, config, { limiter }) {
       const email = field(body, 'email').trim();
       const password = field(body, 'password');
       const ipKey = `connexion:${clientIp(request)}`;
-      const emailKey = `connexion-email:${email.toLowerCase()}`;
       // Every attempt is counted up front, so a correct password cannot slip past a tripped limit.
-      if (limiter.hit(ipKey) | limiter.hit(emailKey)) return tooMany(response);
+      // IP first and short-circuit: a tripped IP adds no email key to the limiter.
+      if (limiter.hit(ipKey)) return tooMany(response);
+      if (email.length > 254) return loginPage(response, '', BAD_LOGIN);
+      const emailKey = `connexion-email:${email.toLowerCase()}`;
+      if (limiter.hit(emailKey)) return tooMany(response);
 
       const { rows: [account] } = await pool.query(
-        'SELECT id, password_hash, banned_at FROM accounts WHERE lower(email) = lower($1)',
+        'SELECT id, role, password_hash, banned_at FROM accounts WHERE lower(email) = lower($1)',
         [email]
       );
       const valid = await verifyPassword(password, account?.password_hash ?? dummyHash);
       if (!account || !valid || account.banned_at) return loginPage(response, email, BAD_LOGIN);
 
-      limiter.reset(emailKey);
-      limiter.reset(ipKey);
+      limiter.reset(emailKey); // never the IP key: it must not be clearable by an account holder
+      if (request.session) await closeSession(pool, request.session.tokenHash);
       const mfaOk = !(await hasSecondFactor(pool, account.id));
       const token = await openSession(pool, account.id, { mfaOk });
-      // The cookie outlives neither session: expires_at is checked server side.
-      redirect(response, mfaOk ? '/' : '/connexion/verification', sessionCookie(token, MEMBER_COOKIE_SECONDS));
+      const staff = account.role === 'moderator' || account.role === 'admin';
+      redirect(
+        response,
+        mfaOk ? '/' : '/connexion/verification',
+        sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS)
+      );
     },
 
     'POST /deconnexion': async (request, response) => {
