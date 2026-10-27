@@ -26,6 +26,12 @@ Chaque contrôle d’accès devra être appliqué côté serveur. Les brouillons
 
 ## État actuel
 
-Le serveur expose uniquement `GET /health`. Il ne charge aucune donnée et ne révèle ni configuration, ni version, ni information personnelle. Le port est validé avant l’écoute ; une valeur hors de `1..65535` arrête le démarrage.
+Le socle est construit. Le serveur est un seul processus Node.js, avec PostgreSQL 18 comme stockage (client `pg`, seule dépendance).
 
-Le stockage, les comptes, les photos, HTTPS, Docker et l’hébergement restent hors de cette première tranche. SQLite reste une option de bêta, pas une décision déjà implémentée.
+- **Routes** : `GET /health` indique que le processus répond ; `GET /ready` répond 200 seulement si la base répond avec le schéma attendu, sinon 503. Aucune ne révèle configuration, version, chemin ou information personnelle. Les erreurs JSON suivent `docs/CONTRATS.md`.
+- **Configuration** : validée avant l’écoute (`FDL_DATA_DIR` absolu et existant, `PORT` entre 1 et 65535, `PGHOST`, `PGDATABASE`, `PGUSER` obligatoires). Une valeur invalide arrête le démarrage ; aucun secret n’est journalisé.
+- **Migrations** : fichiers SQL numérotés dans `src/migrations/`, appliqués au démarrage dans une seule transaction. Une base plus récente que l’application est refusée.
+- **Sauvegarde et restauration** : `npm run backup` produit un dossier (dump PostgreSQL, fichiers de données, manifeste avec sommes SHA-256) ; `npm run restore` le rejoue sur une base et un dossier vierges.
+- **Déploiement** : Docker Compose avec `db`, `app` et `caddy` (HTTPS) ; `scripts/update.sh` sauvegarde, met à jour l’image et revient à l’image précédente si `/ready` ne répond pas. Voir `docs/EXPLOITATION.md`.
+
+Comptes, catalogue, photos et interface web ne sont pas encore construits.

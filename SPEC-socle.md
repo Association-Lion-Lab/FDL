@@ -1,6 +1,6 @@
 # Spécification : `socle`
 
-Statut : brouillon soumis à validation.
+Statut : brouillon soumis à validation. Aligné le 27 octobre 2026 sur le cahier des charges validé (`docs/superpowers/specs/2026-10-27-fdl-cahier-des-charges-design.md`), qui prévaut sur les formulations antérieures.
 
 ## Objectif
 
@@ -14,7 +14,7 @@ Le socle est terminé lorsqu’une instance de test peut démarrer avec une conf
 
 1. La bêta fonctionne sur une seule instance du service.
 2. Node.js 22 ou plus récent reste la plateforme minimale.
-3. SQLite est utilisé pour la première bêta, avec réexamen uniquement si les mesures de charge le justifient.
+3. PostgreSQL 18 est utilisé pour la première bêta (cahier des charges, section 10), avec réexamen uniquement si les mesures de charge le justifient.
 4. Les fichiers persistants sont placés dans un répertoire configurable distinct du code.
 5. Aucune donnée réelle ni aucun accès au serveur Ubuntu personnel n’est utilisé pour valider ce module.
 
@@ -24,12 +24,13 @@ Inclus :
 
 - configuration de démarrage et validation de ses valeurs ;
 - conventions HTTP et format stable des erreurs ;
-- création, ouverture et versionnement du stockage ;
+- création, ouverture et versionnement du stockage PostgreSQL ;
 - sauvegarde cohérente et restauration vérifiée ;
 - contrôles de vie et de disponibilité ;
+- déploiement par Docker Compose (services `db`, `app`, `caddy` pour le HTTPS) et commande de mise à jour ;
 - documentation des commandes et limites mesurées.
 
-Exclus : comptes, invitations, recettes, photos, e-mails, interface web, HTTPS public, Docker, déploiement et modification de Manger!.
+Exclus : comptes, invitations, recettes, photos, e-mails, interface web, modification de Manger! et toute capacité métier (comptes, catalogue, interface web).
 
 ## Pile technique
 
@@ -37,26 +38,29 @@ Exclus : comptes, invitations, recettes, photos, e-mails, interface web, HTTPS p
 - Node.js `>=22` ;
 - API standard de Node privilégiées ;
 - `node:test` et `node:assert` pour les tests ;
-- SQLite proposé comme stockage de bêta ; bibliothèque d’accès à choisir avant l’implémentation du stockage.
+- PostgreSQL 18 comme stockage de bêta, accédé par le client `pg`, seule dépendance du projet ;
+- Docker Compose et Caddy pour le déploiement.
 
 Aucune dépendance n’est ajoutée sans besoin démontré et revue préalable.
 
 ## Commandes
 
 ```powershell
-npm start
-npm test
+npm start                 # démarre le serveur (applique les migrations au démarrage)
+npm run test:docker       # commande de référence : tests dans Docker avec une base PostgreSQL jetable
+npm run backup -- <dossier>   # sauvegarde (pg_dump + fichiers + manifeste SHA-256)
+npm run restore -- <dossier>  # restauration sur base et dossier de données vierges
 node --check src/server.js
 ```
 
-Les futures commandes de sauvegarde, restauration et migration devront être exposées par des scripts `npm` documentés. Leur nom exact sera fixé dans le plan technique ; cette spécification ne prétend pas qu’elles existent déjà.
+`npm test` lance `node --test` et exige `PGHOST` ; il est prévu pour tourner dans le conteneur. La mise à jour d’un serveur se fait avec `scripts/update.sh` (voir `docs/EXPLOITATION.md`).
 
 ## Structure du projet
 
 ```text
 src/                 serveur et futurs modules applicatifs
 tests/               tests unitaires et d’intégration Node
-scripts/             futures commandes d’exploitation
+scripts/             sauvegarde, restauration, mise à jour
 docs/                architecture, contrats et exploitation
 CAPABILITIES.md       carte approuvée des capacités
 SPEC-socle.md         présente spécification
@@ -90,7 +94,7 @@ Une configuration invalide arrête le processus avant l’ouverture du port. Les
 ### Santé
 
 - `GET /health` indique uniquement que le processus HTTP répond.
-- Un futur contrôle de disponibilité vérifie séparément que le stockage est ouvrable.
+- `GET /ready` vérifie séparément que la base répond et que son schéma est à la version attendue.
 - Aucun contrôle ne révèle chemin local, version détaillée, secret ou donnée personnelle.
 
 ### Erreurs
@@ -117,7 +121,7 @@ Chaque nouveau comportement commence par un test en échec. `npm test` doit réu
 
 Les objectifs initiaux restent ceux de `docs/CONTRATS.md` : 100 comptes, 5 000 recettes publiées, 10 lectures simultanées et 95 % des lectures sous 500 ms sur l’instance de test retenue.
 
-Le socle doit fournir les moyens de mesurer ces limites, sans implémenter artificiellement les capacités métier correspondantes. Un changement de base de données exige d’abord une mesure montrant que SQLite ne satisfait pas le besoin.
+Le socle doit fournir les moyens de mesurer ces limites, sans implémenter artificiellement les capacités métier correspondantes. Un changement de base de données exige d’abord une mesure montrant que PostgreSQL ne satisfait pas le besoin.
 
 ## Frontières de travail
 
@@ -132,7 +136,7 @@ Le socle doit fournir les moyens de mesurer ces limites, sans implémenter artif
 ### Demander avant
 
 - ajouter une dépendance ;
-- choisir ou changer la bibliothèque SQLite ;
+- changer de base de données ou de client PostgreSQL ;
 - modifier un contrat HTTP déjà consommé ;
 - modifier le schéma après sa première utilisation réelle ;
 - publier, déployer ou accéder à une machine distante.
@@ -155,8 +159,8 @@ Le socle doit fournir les moyens de mesurer ces limites, sans implémenter artif
 
 ## Questions ouvertes
 
-1. Confirmer SQLite pour la bêta.
-2. Choisir la bibliothèque SQLite seulement après comparaison de la compatibilité Node.js, de la maintenance et des besoins de sauvegarde.
-3. Décider si Docker appartient encore au `socle` ou uniquement à la préparation de la bêta.
-4. Fixer le format de sauvegarde après définition des futurs fichiers d’images.
+1. Résolue : PostgreSQL remplace SQLite (cahier des charges, section 10).
+2. Résolue : le client est `pg` (cahier des charges, sections 10 et 13).
+3. Résolue : Docker Compose et Caddy appartiennent au `socle` (cahier des charges, sections 10, 11 et 13).
+4. Résolue : la sauvegarde combine `pg_dump` et le répertoire de données, photos incluses (cahier des charges, sections 10 et 13).
 5. Fixer l’identité de l’opérateur avant toute donnée réelle, sans bloquer les tests locaux fictifs.
