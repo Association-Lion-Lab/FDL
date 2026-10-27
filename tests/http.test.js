@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import { afterEach, describe, it } from 'node:test';
 
 import { createApp } from '../src/http.js';
@@ -58,5 +59,25 @@ describe('createApp', () => {
     assert.deepEqual(await response.json(), {
       error: { code: 'not_found', message: 'Ressource introuvable.' },
     });
+  });
+
+  it('answers 404 to an unparseable request target and stays up', async () => {
+    const { base } = await start({
+      'GET /health': (request, response) => { response.end('ok'); },
+    });
+    const { port } = new URL(base);
+    const raw = await new Promise((resolve, reject) => {
+      const socket = net.connect(port, '127.0.0.1', () => {
+        socket.write('GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
+      });
+      let data = '';
+      socket.on('data', (chunk) => { data += chunk; });
+      socket.on('end', () => resolve(data));
+      socket.on('error', reject);
+    });
+
+    assert.match(raw, /^HTTP\/1\.1 404 /);
+    assert.ok(raw.includes('not_found'));
+    assert.equal(await (await fetch(`${base}/health`)).text(), 'ok');
   });
 });

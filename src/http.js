@@ -12,8 +12,12 @@ export function sendError(response, status, code, message) {
 
 export function createApp({ routes, log = console.error }) {
   return createServer(async (request, response) => {
-    const { pathname } = new URL(request.url, 'http://x');
-    const handler = routes[`${request.method} ${pathname}`];
+    let handler;
+    try {
+      handler = routes[`${request.method} ${new URL(request.url, 'http://x').pathname}`];
+    } catch {
+      // unparseable request target: treated as an unknown route
+    }
 
     if (!handler) {
       sendError(response, 404, 'not_found', 'Ressource introuvable.');
