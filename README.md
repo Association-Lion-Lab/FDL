@@ -13,9 +13,11 @@ FDL reste indépendant de Manger! et du futur service de scan PDF/photo. Manger!
 Prérequis : Node.js 22 ou plus récent.
 
 ```powershell
-npm test
+npm run test:docker
 npm start
 ```
+
+Les tests tournent dans Docker (PostgreSQL 18 et `pg_dump` 18 inclus) : rien à installer d’autre que Docker. Lancé hors du conteneur, `npm test` n’a pas de base à sa disposition.
 
 Le serveur écoute par défaut sur `http://127.0.0.1:3000`. Le contrôle de santé est disponible sur `GET /health`.
 
