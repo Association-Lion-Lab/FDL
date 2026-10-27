@@ -31,10 +31,13 @@ export async function createBackup({ config, database, outDir }) {
     const pgDump = config.pgBinDir ? join(config.pgBinDir, 'pg_dump') : 'pg_dump';
     await run(pgDump, ['--format=custom', '--file', join(dir, 'database.dump'), '--dbname', database]);
 
-    await cp(config.dataDir, join(dir, 'files'), {
-      recursive: true,
-      filter: (src) => !EXCLUDED.has(relative(config.dataDir, src))
-    });
+    // On copie entrée par entrée : fs.cp refuse de copier un dossier vers l'un de ses sous-dossiers
+    // (par exemple quand la sauvegarde est écrite dans <dataDir>/backups).
+    await mkdir(join(dir, 'files'));
+    for (const name of await readdir(config.dataDir)) {
+      if (EXCLUDED.has(name)) continue;
+      await cp(join(config.dataDir, name), join(dir, 'files', name), { recursive: true });
+    }
 
     const files = {};
     const entries = await readdir(dir, { recursive: true, withFileTypes: true });

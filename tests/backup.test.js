@@ -66,3 +66,16 @@ test('createBackup rejects and leaves no manifest when pg_dump is missing', asyn
   const entries = await readdir(outDir, { recursive: true });
   assert.ok(!entries.some((e) => e.endsWith('manifest.json')));
 });
+
+test('createBackup works when outDir is inside the data directory', async () => {
+  const dir = await createBackup({
+    config: { dataDir, pgBinDir: process.env.FDL_PG_BIN_DIR || '' },
+    database: testDb.database,
+    outDir: join(dataDir, 'backups')
+  });
+
+  const manifest = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'));
+  assert.deepEqual(Object.keys(manifest.files).sort(), ['database.dump', 'files/photos/a.jpg']);
+  assert.equal(manifest.files['files/photos/a.jpg'], sha256('photo-bytes'));
+  assert.deepEqual(await readdir(join(dir, 'files')), ['photos']);
+});
