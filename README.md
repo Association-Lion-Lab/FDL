@@ -21,6 +21,8 @@ Le serveur écoute par défaut sur `http://127.0.0.1:3000`. Le contrôle de sant
 
 ## Documentation
 
+- [Carte des capacités](CAPABILITIES.md)
+- [Spécification du socle](SPEC-socle.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Contrats initiaux](docs/CONTRATS.md)
 
