@@ -13,7 +13,9 @@ const run = promisify(execFile);
 // Mêmes exclusions que la sauvegarde.
 const EXCLUDED = new Set(['tmp', 'backups']);
 
-const fail = (code, message) => Object.assign(new Error(message), { code });
+const OWN_CODES = new Set(['backup_invalid', 'backup_corrupted', 'schema_incompatible', 'target_not_empty', 'restore_failed', 'files_copy_failed']);
+
+const fail =(code, message) => Object.assign(new Error(message), { code });
 
 async function sha256(path) {
   const hash = createHash('sha256');
@@ -36,6 +38,10 @@ async function readManifest(dir) {
 
 async function verifyFiles(dir, files) {
   const corrupted = (detail) => fail('backup_corrupted', `Sauvegarde corrompue : ${detail}.`);
+  const present = await readdir(dir, { recursive: true, withFileTypes: true });
+  for (const entry of present) {
+    if (!entry.isFile() && !entry.isDirectory()) throw corrupted(`entrée non régulière (${entry.name})`);
+  }
   for (const [name, expected] of Object.entries(files)) {
     const path = resolve(dir, name);
     const rel = relative(dir, path);
@@ -50,7 +56,6 @@ async function verifyFiles(dir, files) {
     }
     if (actual !== expected) throw corrupted(`somme de contrôle différente (${name})`);
   }
-  const present = await readdir(dir, { recursive: true, withFileTypes: true });
   for (const entry of present.filter((e) => e.isFile())) {
     const name = relative(dir, join(entry.parentPath, entry.name)).split(sep).join('/');
     if (name !== 'manifest.json' && !Object.hasOwn(files, name)) {
@@ -91,7 +96,12 @@ export async function restoreBackup({ config, database, backupDir }) {
 
   // Mot de passe via PGPASSWORD hérité de l'environnement, jamais en argument.
   const pgRestore = config.pgBinDir ? join(config.pgBinDir, 'pg_restore') : 'pg_restore';
-  await run(pgRestore, ['--exit-on-error', '--single-transaction', '--no-owner', `--dbname=${database}`, join(dir, 'database.dump')]);
+  try {
+    await run(pgRestore, ['--exit-on-error', '--single-transaction', '--no-owner', '--no-acl', `--dbname=${database}`, join(dir, 'database.dump')]);
+  } catch (error) {
+    const detail = String(error.stderr || error.message).trim().split('\n')[0];
+    throw fail('restore_failed', `La restauration de la base a échoué, la base est inchangée : ${detail}`);
+  }
 
   try {
     await mkdir(config.dataDir, { recursive: true });
@@ -111,7 +121,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await restoreBackup({ config, database: process.env.PGDATABASE, backupDir });
     console.log('Restauration terminée.');
   } catch (error) {
-    const detail = String(error.code ? error.message : error.stderr || error.message).trim().split('\n')[0];
+    const own = typeof error.code === 'string' && OWN_CODES.has(error.code);
+    const detail = own || error.message?.startsWith('Usage') ? error.message : 'erreur inattendue, vérifiez la configuration et la connexion à la base.';
     console.error(`Restauration impossible : ${detail}`);
     process.exit(1);
   }

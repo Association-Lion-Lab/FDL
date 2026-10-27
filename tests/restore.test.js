@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -124,6 +124,33 @@ test('a non-empty database or dataDir is target_not_empty and untouched', async 
 
     await writeFile(join(dir, 'existing'), 'x');
     await rejects(restoreBackup({ config: { dataDir: dir, pgBinDir }, database: db.database, backupDir: backup }), 'target_not_empty');
+    assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'")).rows[0].n, 0);
+  } finally {
+    await db.drop();
+  }
+});
+
+test('a failing pg_restore is restore_failed and leaves the database empty', async () => {
+  const backup = await freshBackup();
+  const { db, dir } = await freshTarget();
+  const emptyBin = join(root, `empty-bin-${counter++}`);
+  await mkdir(emptyBin);
+  try {
+    await rejects(restoreBackup({ config: { dataDir: dir, pgBinDir: emptyBin }, database: db.database, backupDir: backup }), 'restore_failed');
+    assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'")).rows[0].n, 0);
+    assert.deepEqual(await readdir(dir), []);
+  } finally {
+    await db.drop();
+  }
+});
+
+test('a symlink inside the backup is backup_corrupted and the target is untouched', async () => {
+  const backup = await freshBackup();
+  await symlink('/etc', join(backup, 'files', 'lien'));
+  const { db, dir } = await freshTarget();
+  try {
+    await rejects(restoreBackup({ config: { dataDir: dir, pgBinDir }, database: db.database, backupDir: backup }), 'backup_corrupted');
+    assert.deepEqual(await readdir(dir), []);
     assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'")).rows[0].n, 0);
   } finally {
     await db.drop();
