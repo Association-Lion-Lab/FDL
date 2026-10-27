@@ -19,6 +19,18 @@ Une erreur suit cette forme :
 
 `code` est stable et destiné au programme appelant. `message` est destiné à la personne qui utilise l’interface. Une réponse ne doit contenir ni secret, ni trace technique, ni donnée d’un autre compte.
 
+Une erreur interne produit un statut `500` avec le code `internal_error` et un champ supplémentaire `requestId` (UUID) qui permet de retrouver la trace complète dans le journal du serveur :
+
+```json
+{
+  "error": {
+    "code": "internal_error",
+    "message": "Erreur interne. Réessayez plus tard.",
+    "requestId": "3f2b8c1e-5a47-4d0e-9b6a-1c2d3e4f5a6b"
+  }
+}
+```
+
 ### `GET /health`
 
 Réponse `200` :

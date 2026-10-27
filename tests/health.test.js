@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import { parsePort } from '../src/config.js';
-import { createApp } from '../src/server.js';
+import { createApp } from '../src/http.js';
+import { routes } from '../src/server.js';
 
 const servers = [];
 
@@ -14,7 +15,7 @@ afterEach(async () => {
 
 describe('GET /health', () => {
   it('returns a minimal status without private data', async () => {
-    const server = createApp().listen(0, '127.0.0.1');
+    const server = createApp({ routes, log: () => {} }).listen(0, '127.0.0.1');
     servers.push(server);
     await new Promise((resolve) => server.once('listening', resolve));
 
@@ -27,7 +28,7 @@ describe('GET /health', () => {
   });
 
   it('returns the documented error shape for an unknown route', async () => {
-    const server = createApp().listen(0, '127.0.0.1');
+    const server = createApp({ routes, log: () => {} }).listen(0, '127.0.0.1');
     servers.push(server);
     await new Promise((resolve) => server.once('listening', resolve));
 
