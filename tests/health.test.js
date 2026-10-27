@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { afterEach, describe, it } from 'node:test';
 
 import { parsePort } from '../src/config.js';
+import { createPool, migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
-import { routes } from '../src/server.js';
+import { buildRoutes } from '../src/server.js';
+import { createTestDatabase } from './helpers/db.js';
 
 const servers = [];
+const routes = buildRoutes(null);
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((resolve, reject) => {
@@ -39,6 +43,58 @@ describe('GET /health', () => {
     assert.deepEqual(await response.json(), {
       error: { code: 'not_found', message: 'Ressource introuvable.' },
     });
+  });
+});
+
+describe('GET /ready', () => {
+  const notReady = {
+    error: { code: 'not_ready', message: 'Service momentanément indisponible.' },
+  };
+
+  async function get(pool, path) {
+    const server = createApp({ routes: buildRoutes(pool), log: () => {} }).listen(0, '127.0.0.1');
+    servers.push(server);
+    await new Promise((resolve) => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`);
+    return { response, text: await response.text() };
+  }
+
+  it('returns 200 when the schema is at the latest version', async () => {
+    const testDb = await createTestDatabase();
+    try {
+      await migrate(testDb.pool);
+      const { response, text } = await get(testDb.pool, '/ready');
+      assert.equal(response.status, 200);
+      assert.deepEqual(JSON.parse(text), { status: 'ok' });
+    } finally {
+      await testDb.drop();
+    }
+  });
+
+  it('returns 503 not_ready when the database is not migrated', async () => {
+    const testDb = await createTestDatabase();
+    try {
+      const { response, text } = await get(testDb.pool, '/ready');
+      assert.equal(response.status, 503);
+      assert.deepEqual(JSON.parse(text), notReady);
+    } finally {
+      await testDb.drop();
+    }
+  });
+
+  it('returns 503 without leaking details when the database is unreachable', async () => {
+    const database = `fdl_missing_${randomBytes(8).toString('hex')}`;
+    const pool = createPool({ database });
+    try {
+      const { response, text } = await get(pool, '/ready');
+      assert.equal(response.status, 503);
+      assert.deepEqual(JSON.parse(text), notReady);
+      assert.ok(!text.includes(database));
+      assert.ok(!text.includes(process.env.PGHOST));
+      assert.ok(!/does not exist|ECONNREFUSED|password/i.test(text));
+    } finally {
+      await pool.end();
+    }
   });
 });
 

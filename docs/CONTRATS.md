@@ -1,6 +1,6 @@
 # Contrats initiaux
 
-Statut : contrat de départ pour la bêta. Seul `GET /health` est implémenté aujourd’hui ; les autres sections fixent les limites à respecter lors des prochaines tranches.
+Statut : contrat de départ pour la bêta. Seuls `GET /health` et `GET /ready` sont implémentés aujourd’hui ; les autres sections fixent les limites à respecter lors des prochaines tranches.
 
 ## HTTP
 
@@ -40,6 +40,25 @@ Réponse `200` :
 ```
 
 Ce contrôle confirme uniquement que le processus HTTP répond. Il ne prétend pas valider une base, un stockage d’images ou un déploiement qui n’existent pas encore.
+
+### `GET /ready`
+
+Réponse `200` quand la base est jointe et que son schéma est à la version attendue par l’application :
+
+```json
+{ "status": "ok" }
+```
+
+Sinon (schéma absent ou différent, base injoignable, erreur de connexion), réponse `503` sans aucun détail technique (ni nom de base, ni hôte, ni message du pilote) :
+
+```json
+{
+  "error": {
+    "code": "not_ready",
+    "message": "Service momentanément indisponible."
+  }
+}
+```
 
 ## Recette communautaire
 
