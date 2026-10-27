@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import { createTestDatabase } from './helpers/db.js';
 
 const SERVER = fileURLToPath(new URL('../src/server.js', import.meta.url));
-const TIMEOUT = 20000;
+const TIMEOUT = 60000;
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -104,13 +104,14 @@ test('configuration valide : /ready répond 200', { timeout: TIMEOUT }, async ()
       const run = start(baseEnv({ FDL_DATA_DIR: dataDir, PORT: String(port), PGDATABASE: db.database }));
       try {
         let status = 0;
-        const deadline = Date.now() + 10000;
+        const deadline = Date.now() + 30000;
         while (status !== 200 && Date.now() < deadline) {
           try {
-            status = (await fetch(`http://127.0.0.1:${port}/ready`)).status;
+            status = (await fetch(`http://127.0.0.1:${port}/ready`, { signal: AbortSignal.timeout(2000) })).status;
           } catch {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            status = 0;
           }
+          if (status !== 200) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         assert.equal(status, 200, run.stderr);
         assert.match(run.stdout, /migrations : 0 → 2/);

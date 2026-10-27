@@ -38,6 +38,18 @@ describe('passwords', () => {
     assert.equal(await verifyPassword('another password!', a), false);
   });
 
+  it('returns false, without throwing, for malformed stored hashes', async () => {
+    const good = await hashPassword(PASSWORD);
+    const [, , , , salt, hash] = good.split('$');
+    const bad = [
+      'scrypt$32768$8$1$c2FsdA==$!!!', 'scrypt$32768$8$1$c2FsdA==$=', 'scrypt$32768$8$1$c2FsdA==$AA',
+      `scrypt$abc$8$1$${salt}$${hash}`, `scrypt$1048576$8$1$${salt}$${hash}`, `scrypt$32768$8$1$${salt}`,
+      `bcrypt$32768$8$1$${salt}$${hash}`, `scrypt$32768$8$1$${salt}$${hash}x`, '', 'scrypt'
+    ];
+    for (const stored of bad) assert.equal(await verifyPassword('', stored), false, stored);
+    assert.equal(await verifyPassword(PASSWORD, good), true);
+  });
+
   it('checks length', () => {
     assert.match(checkPassword('court'), /12/);
     assert.match(checkPassword('x'.repeat(257)), /256/);
@@ -129,6 +141,15 @@ describe('redeemReset', () => {
       assert.equal(await count(`SELECT count(*) AS n FROM ${table} WHERE account_id = $1`, [accountId]), 0, table);
     }
     assert.deepEqual(await redeemReset(pool, { token, password: 'a brand new password' }), { error: 'link_invalid' });
+  });
+
+  it('refuses a reset link without account and does not create one', async () => {
+    await assert.rejects(createLink(pool, { kind: 'reset' }));
+    const token = 'orphan-reset-token';
+    await pool.query("INSERT INTO access_links (token_hash, kind, expires_at) VALUES ($1, 'reset', now() + interval '1 day')", [hashToken(token)]);
+    assert.deepEqual(await redeemReset(pool, { token, password: PASSWORD }), { error: 'link_invalid' });
+    const { rows: [link] } = await pool.query('SELECT used_at FROM access_links WHERE token_hash = $1', [hashToken(token)]);
+    assert.equal(link.used_at, null);
   });
 
   it('refuses an invitation token and a weak password without burning the link', async () => {

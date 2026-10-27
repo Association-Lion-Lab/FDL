@@ -12,13 +12,18 @@ export async function hashPassword(password) {
 }
 
 export async function verifyPassword(password, stored) {
-  const [name, N, r, p, salt, hash] = String(stored).split('$');
-  if (name !== 'scrypt' || !hash) return false;
-  const expected = Buffer.from(hash, 'base64');
-  const actual = await scryptAsync(password, Buffer.from(salt, 'base64'), expected.length, {
-    N: Number(N), r: Number(r), p: Number(p), maxmem: SCRYPT.maxmem
-  });
-  return timingSafeEqual(actual, expected);
+  try {
+    const parts = String(stored).split('$');
+    if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+    if (parts[1] !== String(SCRYPT.N) || parts[2] !== String(SCRYPT.r) || parts[3] !== String(SCRYPT.p)) return false;
+    const salt = Buffer.from(parts[4], 'base64');
+    const expected = Buffer.from(parts[5], 'base64');
+    if (salt.length !== 16 || expected.length !== 64) return false;
+    if (salt.toString('base64') !== parts[4] || expected.toString('base64') !== parts[5]) return false;
+    return timingSafeEqual(await scryptAsync(password, salt, 64, SCRYPT), expected);
+  } catch {
+    return false;
+  }
 }
 
 export function checkPassword(password) {
@@ -32,6 +37,7 @@ export function hashToken(token) {
 }
 
 export async function createLink(db, { kind, role = null, accountId = null, note = null, createdBy = null }) {
+  if (kind === 'reset' && !accountId) throw new Error('Un lien de réinitialisation exige un compte.');
   const token = randomBytes(32).toString('base64url');
   await db.query(
     `INSERT INTO access_links (token_hash, kind, role, account_id, note, created_by, expires_at)
@@ -59,6 +65,10 @@ async function withLink(db, token, kind, fn) {
       return { error: 'link_invalid' };
     }
     const result = await fn(client, link);
+    if (!result) {
+      await client.query('ROLLBACK');
+      return { error: 'link_invalid' };
+    }
     await client.query('COMMIT');
     return result;
   } catch (error) {
@@ -91,6 +101,7 @@ export async function redeemReset(db, { token, password }) {
   const passwordHash = await hashPassword(password);
   return withLink(db, token, 'reset', async (client, link) => {
     const id = link.account_id;
+    if (!id) return null;
     await client.query('UPDATE accounts SET password_hash = $2 WHERE id = $1', [id, passwordHash]);
     for (const table of ['sessions', 'totp_secrets', 'passkeys', 'recovery_codes']) {
       await client.query(`DELETE FROM ${table} WHERE account_id = $1`, [id]);
