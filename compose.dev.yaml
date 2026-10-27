@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_PASSWORD: fdl_test
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
       interval: 2s
       timeout: 3s
       retries: 30
