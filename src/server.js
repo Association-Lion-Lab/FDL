@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 
-import { parsePort } from './config.js';
-import { LATEST_SCHEMA_VERSION, readSchemaVersion } from './db.js';
+import { loadConfig } from './config.js';
+import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from './db.js';
 import { createApp, sendError, sendJson } from './http.js';
 
 export function buildRoutes(pool, log = console.error) {
@@ -23,23 +23,50 @@ export function buildRoutes(pool, log = console.error) {
   };
 }
 
-export function startServer({
-  host = process.env.HOST || '127.0.0.1',
-  port = parsePort(process.env.PORT),
-  pool = null, // ponytail: wired to a real pool by the startup task
-} = {}) {
+export async function main(env = process.env) {
+  let config;
+  try {
+    config = loadConfig(env);
+  } catch (error) {
+    // Config messages are French and never contain secrets.
+    console.error(error.message);
+    process.exitCode = 1;
+    return null;
+  }
+
+  const pool = createPool();
+  const fail = async (message) => {
+    console.error(message);
+    process.exitCode = 1;
+    await pool.end().catch(() => {});
+    return null;
+  };
+
+  try {
+    await migrate(pool);
+  } catch (error) {
+    // Never print pg's message: it can echo connection details.
+    return fail(
+      error.code === 'schema_incompatible'
+        ? error.message
+        : `Base de données injoignable ou refusée : ${error.code ?? 'inconnu'}`
+    );
+  }
+
   const server = createApp({ routes: buildRoutes(pool) });
-  server.listen(port, host, () => {
-    console.log(`FDL écoute sur http://${host}:${port}`);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(config.port, config.host, resolve);
+    });
+  } catch (error) {
+    return fail(`Impossible d'écouter sur ${config.host}:${config.port} : ${error.code ?? 'inconnu'}`);
+  }
+  server.once('close', () => pool.end().catch(() => {}));
+  console.log(`FDL écoute sur http://${config.host}:${config.port}`);
   return server;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    startServer();
-  } catch (error) {
-    console.error(error.message);
-    process.exitCode = 1;
-  }
+  await main();
 }

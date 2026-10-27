@@ -19,7 +19,23 @@ npm start
 
 Les tests tournent dans Docker (PostgreSQL 18 et `pg_dump` 18 inclus) : rien à installer d’autre que Docker. Lancé hors du conteneur, `npm test` n’a pas de base à sa disposition.
 
-Le serveur écoute par défaut sur `http://127.0.0.1:3000`. Le contrôle de santé est disponible sur `GET /health`.
+Le serveur écoute par défaut sur `http://127.0.0.1:3000`. `GET /health` indique que le processus tourne, `GET /ready` que la base est joignable et à jour. Au démarrage, FDL applique les migrations ; si la configuration est invalide ou la base injoignable, il affiche une ligne d’erreur et s’arrête avec le code 1.
+
+## Configuration
+
+Tout se règle par variables d’environnement.
+
+| Variable | Rôle | Défaut |
+| --- | --- | --- |
+| `FDL_DATA_DIR` | Dossier absolu et existant des données d’exécution | obligatoire |
+| `HOST` | Adresse d’écoute | `127.0.0.1` |
+| `PORT` | Port d’écoute (1 à 65535) | `3000` |
+| `FDL_PG_BIN_DIR` | Dossier des binaires PostgreSQL (`pg_dump`) | vide |
+| `PGHOST`, `PGDATABASE`, `PGUSER` | Serveur, base et utilisateur PostgreSQL | obligatoires |
+| `PGPORT` | Port PostgreSQL | `5432` |
+| `PGPASSWORD` | Mot de passe PostgreSQL | selon le serveur |
+
+Le mot de passe n’est jamais affiché ni journalisé.
 
 ## Documentation
 
