@@ -1,11 +1,54 @@
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig } from './config.js';
 import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from './db.js';
 import { createApp, sendError, sendJson } from './http.js';
+import { loadSession } from './sessions.js';
+import { parseCookies, redirect } from './web.js';
 
-export function buildRoutes(pool, log = console.error) {
+const css = readFileSync(new URL('./static/fdl.css', import.meta.url));
+
+// Exact paths reachable without a session. Later tasks append their routes here.
+export const PUBLIC_PATHS = new Set([
+  '/health',
+  '/ready',
+  '/connexion',
+  '/connexion/verification',
+  '/inscription',
+  '/reinitialisation',
+  '/deconnexion',
+  '/static/fdl.css',
+]);
+
+export function buildBefore(pool, config) {
+  return async (request, response) => {
+    if (request.method === 'POST' && request.headers.origin !== config.origin) {
+      sendError(response, 403, 'bad_origin', 'Origine de la requête refusée.');
+      return false;
+    }
+    request.session = await loadSession(pool, parseCookies(request).fdl_session);
+    let pathname = null;
+    try {
+      pathname = new URL(request.url, 'http://x').pathname;
+    } catch {
+      // unparseable target: never public
+    }
+    if (PUBLIC_PATHS.has(pathname)) return true;
+    if (!request.session?.mfaOk) {
+      redirect(response, '/connexion');
+      return false;
+    }
+    return true;
+  };
+}
+
+export function buildRoutes(pool, log = console.error, config) {
   return {
+    'GET /static/fdl.css': (request, response) => {
+      response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
+      response.end(css);
+    },
     'GET /health': (request, response) => sendJson(response, 200, { status: 'ok' }),
     'GET /ready': async (request, response) => {
       // Failures are logged for the operator, never put in the HTTP body.
@@ -54,7 +97,7 @@ export async function main(env = process.env) {
     );
   }
 
-  const server = createApp({ routes: buildRoutes(pool) });
+  const server = createApp({ routes: buildRoutes(pool, console.error, config), before: buildBefore(pool, config) });
   try {
     await new Promise((resolve, reject) => {
       server.once('error', reject);

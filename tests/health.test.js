@@ -9,7 +9,7 @@ import { buildRoutes } from '../src/server.js';
 import { createTestDatabase } from './helpers/db.js';
 
 const servers = [];
-const routes = buildRoutes(null);
+const routes = buildRoutes(null, () => {}, { origin: 'http://localhost' });
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((resolve, reject) => {
@@ -52,7 +52,7 @@ describe('GET /ready', () => {
   };
 
   async function get(pool, path, logs = []) {
-    const server = createApp({ routes: buildRoutes(pool, (line) => logs.push(line)), log: () => {} }).listen(0, '127.0.0.1');
+    const server = createApp({ routes: buildRoutes(pool, (line) => logs.push(line), { origin: 'http://localhost' }), log: () => {} }).listen(0, '127.0.0.1');
     servers.push(server);
     await new Promise((resolve) => server.once('listening', resolve));
     const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`);

@@ -10,23 +10,30 @@ export function sendError(response, status, code, message) {
   sendJson(response, status, { error: { code, message } });
 }
 
-export function createApp({ routes, log = console.error }) {
+export function createApp({ routes, log = console.error, before }) {
   return createServer(async (request, response) => {
-    let handler;
     try {
-      handler = routes[`${request.method} ${new URL(request.url, 'http://x').pathname}`];
-    } catch {
-      // unparseable request target: treated as an unknown route
-    }
+      if (before && (await before(request, response)) === false) return;
 
-    if (!handler) {
-      sendError(response, 404, 'not_found', 'Ressource introuvable.');
-      return;
-    }
+      let handler;
+      try {
+        handler = routes[`${request.method} ${new URL(request.url, 'http://x').pathname}`];
+      } catch {
+        // unparseable request target: treated as an unknown route
+      }
 
-    try {
+      if (!handler) {
+        sendError(response, 404, 'not_found', 'Ressource introuvable.');
+        return;
+      }
+
       await handler(request, response);
     } catch (error) {
+      // Errors with a `status` (see web.js readBody) are expected client errors.
+      if (error?.status && !response.headersSent) {
+        sendError(response, error.status, error.code, error.message);
+        return;
+      }
       const requestId = randomUUID();
       log(`${requestId} ${error?.stack ?? error}`);
       if (response.headersSent) {

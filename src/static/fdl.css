@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; }
+body { margin: 0; font: 1rem/1.5 system-ui, sans-serif; }
+main { max-width: 40rem; margin: 0 auto; padding: 1rem; }
+label { display: block; margin-top: 1rem; }
+input, button { font: inherit; padding: 0.5rem; max-width: 100%; box-sizing: border-box; }
+input { width: 100%; }
+button { margin-top: 1rem; cursor: pointer; }
+.error { color: #b00020; }
