@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
     "test": "node --test",
     "test:docker": "docker compose -f compose.dev.yaml run --rm --build test"
   },

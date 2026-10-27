@@ -41,6 +41,10 @@ Le mot de passe n’est jamais affiché ni journalisé.
 
 `npm run backup -- <dossier de sortie>` crée un dossier `fdl-backup-<date>` contenant `database.dump` (`pg_dump` au format custom), `files/` (copie de `FDL_DATA_DIR`, sans `tmp/` ni `backups/`) et `manifest.json` (version du schéma, date, somme SHA-256 de chaque fichier). Le manifeste est écrit en dernier : sans lui, la sauvegarde est incomplète. La base sauvegardée est `PGDATABASE` ; la commande affiche le chemin créé, ou une ligne d’erreur et le code 1.
 
+## Restauration
+
+`npm run restore -- <dossier de sauvegarde>` restaure une sauvegarde dans la base `PGDATABASE` et dans `FDL_DATA_DIR`. Avant toute modification, la commande vérifie dans l’ordre : le manifeste (`backup_invalid`), les sommes SHA-256 et l’absence de fichier manquant ou en trop (`backup_corrupted`), la version du schéma (`schema_incompatible`), puis que la base cible et le dossier de données sont vides, hors `tmp/` et `backups/` (`target_not_empty`). Elle ne remplace jamais de données existantes : restaurez vers une base vierge et un dossier vierge. La base est restaurée en une seule transaction (`pg_restore --single-transaction`) : en cas d’échec, elle reste intacte et les fichiers ne sont pas copiés. Si la copie des fichiers échoue après la restauration de la base, le message l’indique et la base reste restaurée. En cas d’erreur, une ligne en français est affichée et le code de sortie est 1.
+
 ## Documentation
 
 - [Carte des capacités](CAPABILITIES.md)
