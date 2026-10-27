@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
-import { createApp, parsePort } from '../src/server.js';
+import { parsePort } from '../src/config.js';
+import { createApp } from '../src/server.js';
 
 const servers = [];
 

@@ -1,16 +1,7 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
-export function parsePort(value) {
-  if (value === undefined || value === '') return 3000;
-
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('PORT doit être un entier compris entre 1 et 65535.');
-  }
-
-  return port;
-}
+import { parsePort } from './config.js';
 
 export function createApp() {
   return createServer((request, response) => {
