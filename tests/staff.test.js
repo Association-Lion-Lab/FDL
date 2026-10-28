@@ -95,7 +95,8 @@ describe('staff without a passkey', () => {
   it('is released once a key exists', async () => {
     const id = await account('moderator');
     await addKey(id);
-    assert.equal((await send('/admin', { cookie: await fullSession(id) })).status, 200);
+    assert.equal((await send('/admin', { cookie: await fullSession(id) })).status, 403);
+    assert.equal((await send('/compte/securite', { cookie: await fullSession(id) })).status, 200);
   });
 
   it('keeps members out of /admin', async () => {
