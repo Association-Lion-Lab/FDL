@@ -4,7 +4,7 @@ Une base communautaire pour partager, découvrir et importer des recettes dans M
 
 ## État
 
-Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. L’accès est construit : invitations, comptes, sessions, seconde étape (code à 6 chiffres, clés d’accès, codes de récupération) et pages d’administration des comptes. Aucun catalogue, stockage d’images ni envoi d’e-mail n’est encore disponible : les liens d’invitation et de réinitialisation se transmettent à la main.
+Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. L’accès est construit : invitations, comptes, sessions, seconde étape (code à 6 chiffres, clés d’accès, codes de récupération) et pages d’administration des comptes. Le catalogue est lisible (vitrine, recherche, page recette), mais aucune saisie de recette, aucun stockage d’images ni envoi d’e-mail n’est encore disponible : les liens d’invitation et de réinitialisation se transmettent à la main.
 
 FDL reste indépendant de Manger! et du futur service de scan PDF/photo. Manger! doit continuer à fonctionner sans FDL. Seules les contributions volontairement soumises à FDL y seront conservées.
 
@@ -17,6 +17,8 @@ npm run test:docker
 ```
 
 Les tests tournent dans Docker (PostgreSQL 18 et `pg_dump` 18 inclus) : rien à installer d’autre que Docker. Lancé hors du conteneur, `npm test` n’a pas de base à sa disposition. Pour faire tourner le service (configuration, `docker compose`), voir [docs/EXPLOITATION.md](docs/EXPLOITATION.md) ; `npm start` seul échoue sans `FDL_DATA_DIR` et `PG*`.
+
+Pour essayer le catalogue en développement, `npm run seed:demo -- <nombre>` (30 par défaut) crée trois univers et des recettes de démonstration dans la base `PGDATABASE`. Il refuse de tourner avec `NODE_ENV=production`.
 
 Le serveur écoute par défaut sur `http://127.0.0.1:3000`. `GET /health` indique que le processus tourne, `GET /ready` que la base est joignable et à jour. Au démarrage, FDL applique les migrations ; si la configuration est invalide ou la base injoignable, il affiche une ligne d’erreur et s’arrête avec le code 1.
 

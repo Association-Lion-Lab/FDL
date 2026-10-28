@@ -1,6 +1,6 @@
 # Contrats initiaux
 
-Statut : contrat de départ pour la bêta. Sont implémentés aujourd’hui `GET /health`, `GET /ready` et les routes d’accès (section « Accès ») ; les autres sections fixent les limites à respecter lors des prochaines tranches.
+Statut : contrat de départ pour la bêta. Sont implémentés aujourd’hui `GET /health`, `GET /ready`, les routes d’accès (section « Accès ») et les pages du catalogue (section « Catalogue ») ; les autres sections fixent les limites à respecter lors des prochaines tranches.
 
 ## HTTP
 
@@ -145,9 +145,27 @@ FDL peut conserver des métadonnées communautaires supplémentaires, mais l’i
 
 ## Pagination et recherche
 
-Le futur catalogue utilisera une pagination par curseur opaque. La limite par défaut sera de 20 recettes et la limite maximale de 50. Un curseur invalide devra produire une erreur `400` stable. Aucun brouillon ou contenu retiré ne devra entrer dans les résultats.
+La pagination se fait par curseur opaque : 20 recettes par défaut, 50 au maximum. Un curseur invalide produit une erreur `400` de code `bad_cursor`. Les résultats sont triés de la plus récente à la plus ancienne (date de première publication), y compris pour une recherche texte. Aucun brouillon, aucune recette privée et aucune recette d’un compte banni n’y entre. L’API JSON (`/api/v1`) arrivera avec `integration-manger` ; elle reprendra ces règles.
 
-Les filtres prévus sont le texte, la durée, le régime, l’univers et les saisons déclarées. Leur sémantique exacte sera testée avant l’ouverture de ces routes.
+Sémantique des filtres :
+
+- texte : recherche plein texte française sur le titre (poids fort), les noms d’ingrédients et les étiquettes ; insensible à la casse, aux accents et aux pluriels courants. Un texte vide ou fait d’espaces ne filtre pas ;
+- durée : durée totale inférieure ou égale à la valeur ;
+- régime : « convient à ». `vegan` garde `vegan` ; `vegetarian` garde `vegan` et `vegetarian` ; `pescetarian` garde les trois ; `omnivore` ne filtre pas ;
+- univers : égalité stricte avec un univers de la liste fermée gérée par les administrateurs ;
+- saisons : au moins une saison commune. Une recette sans saison ne sort jamais d’un filtre de saison.
+
+## Catalogue
+
+Pages HTML réservées à une session complète pendant la bêta :
+
+| Route | Rôle |
+| --- | --- |
+| `GET /` | vitrine : rangées « De saison », « Récemment ajoutées », « Rapides » (30 min au plus), « Végétariennes », 6 recettes chacune ; une rangée vide n’est pas affichée |
+| `GET /recherche` | paramètres `q`, `duree` (`15`, `30`, `60`), `regime` (`vegan`, `vegetarian`, `pescetarian`), `univers` (identifiant), `saison` (répétable : `spring`, `summer`, `autumn`, `winter`), `apres` (curseur) ; une valeur inconnue de `duree`, `regime` ou `saison` est ignorée ; curseur invalide → `400` « Lien de page invalide » |
+| `GET /recette?id=<id>` | recette publiée, dernière version ; identifiant invalide, inconnu ou recette non visible → `404` « Recette introuvable » |
+
+Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Photos, signalement, notes et import dans Manger! viendront avec les tranches suivantes.
 
 ## Limites de la bêta à vérifier
 
@@ -158,5 +176,7 @@ Objectifs de travail, pas promesses de production :
 - 10 requêtes de lecture simultanées sans erreur ;
 - 95 % des lectures de catalogue sous 500 ms sur l’instance de test retenue ;
 - restauration complète de la base et des images démontrée avant toute vraie bêta.
+
+Mesure du 28 octobre 2026, en local (PC de développement, PostgreSQL 18 en conteneur), pas sur l’instance de test : 5 000 recettes, 200 recherches par 10 en parallèle (texte, filtres, curseur), 95e centile 30 ms.
 
 Ces seuils devront être mesurés avec des données d’essai et révisés avant de choisir définitivement le stockage ou l’hébergement.
