@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { migrate } from '../src/db.js';
-import { currentSeason, getRecipe, publishVersion, searchRecipes } from '../src/recipes.js';
+import { currentSeason, getRecipe, publishVersion, searchRecipes, topRated } from '../src/recipes.js';
 import { createTestDatabase } from './helpers/db.js';
 import { recipe } from './helpers/recipes.js';
 
@@ -187,5 +187,39 @@ describe('currentSeason', () => {
     assert.equal(currentSeason(new Date('2026-03-01T12:00:00Z')), 'spring');
     assert.equal(currentSeason(new Date('2026-08-31T12:00:00Z')), 'summer');
     assert.equal(currentSeason(new Date('2026-11-30T12:00:00Z')), 'autumn');
+  });
+});
+
+describe('ratings', () => {
+  const rate = async (id, stars) => {
+    await pool.query('INSERT INTO ratings (recipe_id, account_id, stars) VALUES ($1, $2, $3)', [id, await account(), stars]);
+  };
+
+  it('averages notes on the recipe and its card', async () => {
+    const { id } = await publish({ title: 'Notée' });
+    await publish({ title: 'Sans note' });
+    assert.equal((await getRecipe(pool, id)).rating, null);
+    for (const stars of [5, 4, 4]) await rate(id, stars);
+    const { rating } = await getRecipe(pool, id);
+    assert.equal(rating.count, 3);
+    assert.ok(Math.abs(rating.average - 13 / 3) < 1e-9);
+    const { items } = await searchRecipes(pool);
+    assert.equal(items.find((c) => c.title === 'Notée').rating.count, 3);
+    assert.equal(items.find((c) => c.title === 'Sans note').rating, null);
+  });
+
+  it('ranks recipes with 3 notes or more, skipping banned authors', async () => {
+    const bannedId = await account();
+    const few = await publish({ title: 'Deux notes' });
+    const good = await publish({ title: 'Très bonne' });
+    const fine = await publish({ title: 'Correcte' });
+    const banned = await publish({ title: 'Bannie' }, bannedId);
+    for (const stars of [5, 5]) await rate(few.id, stars);
+    for (const stars of [5, 5, 4]) await rate(good.id, stars);
+    for (const stars of [4, 4, 4]) await rate(fine.id, stars);
+    for (const stars of [5, 5, 5]) await rate(banned.id, stars);
+    await pool.query('UPDATE accounts SET banned_at = now() WHERE id = $1', [bannedId]);
+    assert.deepEqual((await topRated(pool)).map((c) => c.title), ['Très bonne', 'Correcte']);
+    assert.equal((await topRated(pool, { limit: 1 })).length, 1);
   });
 });

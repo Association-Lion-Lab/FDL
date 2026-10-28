@@ -110,6 +110,15 @@ export const VISIBLE = `FROM recipes r
   LEFT JOIN universes u ON u.slug = v.universe
   WHERE r.visibility = 'public' AND r.removed_at IS NULL AND (a.id IS NULL OR a.banned_at IS NULL)`;
 
+// One grouped query for a page of recipes: Map of id -> { average, count }.
+async function ratingsOf(db, ids) {
+  const { rows } = await db.query(
+    'SELECT recipe_id, avg(stars)::float8 AS average, count(*)::int AS count FROM ratings WHERE recipe_id = ANY($1::bigint[]) GROUP BY recipe_id',
+    [ids]
+  );
+  return new Map(rows.map((row) => [Number(row.recipe_id), { average: row.average, count: row.count }]));
+}
+
 export async function getRecipe(db, id) {
   const { rows } = await db.query(
     `SELECT r.id, v.*, u.label AS universe_label, a.display_name AS author ${VISIBLE} AND r.id = $1`,
@@ -135,6 +144,7 @@ export async function getRecipe(db, id) {
     author: row.author,
     submittedAt: row.submitted_at,
     publishedAt: row.published_at,
+    rating: (await ratingsOf(db, [id])).get(Number(id)) ?? null,
   };
 }
 
@@ -184,7 +194,22 @@ export async function searchRecipes(db, { q = '', maxMinutes = null, diet = null
   const page = rows.slice(0, size);
   const last = page.at(-1);
   const next = rows.length > size ? Buffer.from(JSON.stringify({ t: last.t, i: Number(last.id) })).toString('base64url') : null;
-  return { items: page.map(({ id, title, minutes, diet: d, author }) => ({ id: Number(id), title, minutes, diet: d, author })), next };
+  const ratings = await ratingsOf(db, page.map((row) => row.id));
+  const items = page.map(({ id, title, minutes, diet: d, author }) => ({ id: Number(id), title, minutes, diet: d, author, rating: ratings.get(Number(id)) ?? null }));
+  return { items, next };
+}
+
+// Recipes with at least 3 notes, best average first.
+export async function topRated(db, { limit = 6 } = {}) {
+  const { rows } = await db.query(
+    `SELECT r.id, v.title, v.minutes, v.diet, a.display_name AS author, n.average, n.count
+     ${VISIBLE.replace('WHERE', `JOIN (SELECT recipe_id, avg(stars)::float8 AS average, count(*)::int AS count
+         FROM ratings GROUP BY recipe_id HAVING count(*) >= 3) n ON n.recipe_id = r.id
+     WHERE`)}
+     ORDER BY n.average DESC, n.count DESC, r.id DESC LIMIT $1`,
+    [Math.min(50, Math.max(1, Math.trunc(limit) || 6))]
+  );
+  return rows.map(({ id, title, minutes, diet, author, average, count }) => ({ id: Number(id), title, minutes, diet, author, rating: { average, count } }));
 }
 
 export async function listUniverses(db) {

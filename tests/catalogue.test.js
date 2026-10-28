@@ -163,3 +163,66 @@ describe('catalogue pages', () => {
     assert.ok(!second.text.includes('Page suivante'));
   });
 });
+
+describe('ratings', () => {
+  const memberCookie = async () => `fdl_session=${await openSession(pool, await account(), { mfaOk: true })}`;
+  const rate = async (fields, who = cookie) => {
+    const response = await fetch(`${base}/recette/note`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie: who, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(fields),
+    });
+    return { status: response.status, location: response.headers.get('location'), text: await response.text() };
+  };
+  const rows = async () => (await pool.query('SELECT * FROM ratings ORDER BY account_id')).rows;
+
+  it('refuse the author, hidden recipes and bad values, and write nothing', async () => {
+    const authorId = await account();
+    const author = `fdl_session=${await openSession(pool, authorId, { mfaOk: true })}`;
+    const { id } = await publish({}, authorId);
+    const own = await rate({ id: String(id), etoiles: '5' }, author);
+    assert.equal(own.status, 403);
+    assert.ok(own.text.includes('Vous ne pouvez pas noter votre propre recette.'));
+    await pool.query("UPDATE recipes SET visibility = 'private' WHERE id = $1", [id]);
+    assert.equal((await rate({ id: String(id), etoiles: '5' })).status, 404);
+    await pool.query("UPDATE recipes SET visibility = 'public' WHERE id = $1", [id]);
+    for (const bad of ['6', '0', '3.5', '1e0', ' 3', '-1', '', 'abc', '3 ']) {
+      assert.equal((await rate({ id: String(id), etoiles: bad })).status, 400, JSON.stringify(bad));
+    }
+    for (const bad of ['', 'x', '99999999999999999999', '0']) {
+      assert.equal((await rate({ id: bad, etoiles: '3' })).status, 404, bad);
+    }
+    assert.deepEqual(await rows(), []);
+  });
+
+  it('replace a second note of the same member and show the average', async () => {
+    const { id } = await publish({});
+    const first = await rate({ id: String(id), etoiles: '1' });
+    assert.equal(first.status, 303);
+    assert.equal(first.location, `/recette?id=${id}`);
+    await rate({ id: String(id), etoiles: '5' });
+    assert.deepEqual((await rows()).map((r) => r.stars), [5]);
+    assert.ok((await page(`/recette?id=${id}`)).text.includes('<option value="5" selected>'));
+    assert.ok((await page(`/recette?id=${id}`)).text.includes('5 / 5 (1 note)'));
+    await rate({ id: String(id), etoiles: '4' }, await memberCookie());
+    await rate({ id: String(id), etoiles: '4' }, await memberCookie());
+    const shown = await page(`/recette?id=${id}`);
+    assert.ok(shown.text.includes('4,3 / 5 (3 notes)'));
+    assert.ok((await page('/recherche')).text.includes('4,3 / 5 (3 notes)'));
+  });
+
+  it('show "Pas encore de note", and the best rated row from 3 notes', async () => {
+    const authorId = await account();
+    const { id } = await publish({ title: 'Étoilée' }, authorId);
+    const author = `fdl_session=${await openSession(pool, authorId, { mfaOk: true })}`;
+    const unrated = await page(`/recette?id=${id}`);
+    assert.ok(unrated.text.includes('Pas encore de note'));
+    assert.ok(!(await page('/')).text.includes('Les mieux notées'));
+    for (let i = 0; i < 3; i++) await rate({ id: String(id), etoiles: '5' }, await memberCookie());
+    const home = (await page('/')).text;
+    assert.ok(home.indexOf('Les mieux notées') > home.indexOf('Récemment ajoutées'));
+    assert.ok(home.indexOf('Les mieux notées') < home.indexOf('Rapides'));
+    assert.ok(!(await get(`/recette?id=${id}`, author).then((r) => r.text())).includes('action="/recette/note"'));
+  });
+});

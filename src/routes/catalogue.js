@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { getOwnRecipe } from '../contributions.js';
-import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes } from '../recipes.js';
+import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
 import { html, sendPage } from '../web.js';
 
 const printScript = readFileSync(new URL('../static/fdl-print.js', import.meta.url));
@@ -32,9 +32,12 @@ ${body}`);
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>
 <p>Cette recette n'existe pas ou n'est plus visible.</p>`);
 
+const plural = (n) => (n > 1 ? 's' : '');
+export const ratingText = ({ average, count }) => `${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} / 5 (${count} note${plural(count)})`;
+
 const cards = (items) => html`<ul class="cards">
 ${items.map((card) => html`<li><a href="/recette?id=${card.id}">${card.title}</a>
-<span>${card.minutes} min · ${DIET_LABELS[card.diet]} · ${author(card.author)}</span></li>
+<span>${card.minutes} min · ${DIET_LABELS[card.diet]} · ${author(card.author)}${card.rating ? ` · ${ratingText(card.rating)}` : ''}</span></li>
 `)}</ul>`;
 
 // Rows of the showcase: title, filters, "Tout voir" link.
@@ -96,6 +99,7 @@ export function recipeArticle(recipe, banner = '') {
   return html`<article>
 ${banner}<h1>${recipe.title}</h1>
 <p>Par ${author(recipe.author)}</p>
+${recipe.rating === undefined ? '' : html`<p>${recipe.rating ? ratingText(recipe.rating) : 'Pas encore de note'}</p>`}
 <ul class="facts">
 <li>${recipe.minutes} min</li>
 <li>${recipe.servings} portions</li>
@@ -121,13 +125,15 @@ export function catalogueRoutes(pool) {
       const rows = await Promise.all(ROWS(currentSeason()).map(async ([title, filters, link]) => [
         title, (await searchRecipes(pool, filters, { limit: 6 })).items, link,
       ]));
+      // "Les mieux notées" follows "Récemment ajoutées" and has no "Tout voir".
+      rows.splice(2, 0, ['Les mieux notées', await topRated(pool), null]);
       const filled = rows.filter(([, items]) => items.length);
       show(response, 200, 'Faim de Lion', html`<h1>Faim de Lion</h1>
 <p>Bienvenue ${request.session.displayName}.</p>
 ${filled.length ? filled.map(([title, items, link]) => html`<section>
 <h2>${title}</h2>
 ${cards(items)}
-<p><a href="${link}">Tout voir</a></p>
+${link ? html`<p><a href="${link}">Tout voir</a></p>` : ''}
 </section>`) : html`<p>Aucune recette publiée pour l'instant.</p>`}`);
     },
 
@@ -166,7 +172,14 @@ ${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suiva
         recipe = await getRecipe(pool, id);
         if (!recipe) return notFound(response);
       }
+      // The author does not rate: no form, no query.
+      const mine = own ? null : (await pool.query('SELECT stars FROM ratings WHERE recipe_id = $1 AND account_id = $2', [id, request.session.accountId])).rows[0]?.stars;
       show(response, 200, recipe.title, html`${recipeArticle(recipe, banner)}
+${own ? '' : html`<form method="post" action="/recette/note">
+<input type="hidden" name="id" value="${id}">
+<label>Votre note <select name="etoiles">${[1, 2, 3, 4, 5].map((n) => html`<option value="${n}"${mine === n ? html` selected` : ''}>${n}</option>`)}</select></label>
+<button type="submit">Noter</button>
+</form>`}
 ${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}`);
     },
 

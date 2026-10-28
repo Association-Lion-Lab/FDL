@@ -126,6 +126,25 @@ export function contributionRoutes(pool, config, { limiter }) {
 <p>Merci, votre signalement sera examiné.</p>`);
     },
 
+    'POST /recette/note': async (request, response) => {
+      const { accountId } = request.session;
+      const body = await readBody(request);
+      const id = parseId(field(body, 'id'));
+      if (!await visible(id)) return notFound(response);
+      const stars = field(body, 'etoiles');
+      if (!/^[1-5]$/.test(stars)) return show(response, 400, 'Note invalide', html`<h1>Note invalide</h1>
+<p>Choisissez une note de 1 à 5.</p>`);
+      // The author's own recipe is refused in the statement itself, so no race with a check.
+      const { rowCount } = await pool.query(
+        `INSERT INTO ratings (recipe_id, account_id, stars) SELECT r.id, $2, $3 FROM recipes r WHERE r.id = $1 AND r.author_id IS DISTINCT FROM $2
+         ON CONFLICT (recipe_id, account_id) DO UPDATE SET stars = EXCLUDED.stars, updated_at = now()`,
+        [id, accountId, stars]
+      );
+      if (!rowCount) return show(response, 403, 'Note refusée', html`<h1>Note refusée</h1>
+<p>Vous ne pouvez pas noter votre propre recette.</p>`);
+      redirect(response, `/recette?id=${id}`);
+    },
+
     'GET /mes-recettes': async (request, response) => {
       const items = await listMine(pool, request.session.accountId);
       show(response, 200, 'Mes recettes', html`<h1>Mes recettes</h1>
