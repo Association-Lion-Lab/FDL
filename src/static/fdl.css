@@ -6,3 +6,10 @@ input, button { font: inherit; padding: 0.5rem; max-width: 100%; box-sizing: bor
 input { width: 100%; }
 button { margin-top: 1rem; cursor: pointer; }
 .error { color: #b00020; }
+header { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; max-width: 40rem; margin: 0 auto; padding: 1rem; }
+header form { display: flex; gap: 0.5rem; align-items: end; }
+header label, header button { margin-top: 0; }
+.cards { list-style: none; padding: 0; }
+.cards li { margin-bottom: 0.75rem; }
+.cards span { display: block; font-size: 0.9rem; }
+@media print { header, button { display: none; } }

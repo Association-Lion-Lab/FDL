@@ -86,7 +86,7 @@ describe('sign-up', () => {
     const home = await get('/', cookie);
     assert.equal(home.status, 200);
     const text = await home.text();
-    assert.ok(text.includes('Bienvenue &lt;b&gt;Zoé&lt;/b&gt;, le catalogue arrive bientôt.'));
+    assert.ok(text.includes('Bienvenue &lt;b&gt;Zoé&lt;/b&gt;.'));
     assert.ok(text.includes('/compte/securite'));
   });
 

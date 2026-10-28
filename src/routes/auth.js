@@ -128,11 +128,6 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
     (await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId])).rowCount > 0;
 
   return {
-    'GET /': (request, response) => sendPage(response, 200, 'Faim de Lion', html`<h1>Faim de Lion</h1>
-<p>Bienvenue ${request.session.displayName}, le catalogue arrive bientôt.</p>
-<p><a href="/compte/securite">Sécurité du compte</a></p>
-<form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>`),
-
     'GET /inscription': async (request, response) => {
       const code = queryCode(request);
       return code && (await linkIsLive(pool, code, 'invitation')) ? signupPage(response, code) : gone(response);

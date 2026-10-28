@@ -8,6 +8,7 @@ import { createLimiter } from './ratelimit.js';
 import { passkeyRoutes } from './passkeys.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
+import { catalogueRoutes } from './routes/catalogue.js';
 import { createSecurityLog } from './securitylog.js';
 import { securityRoutes } from './routes/security.js';
 import { loadSession } from './sessions.js';
@@ -73,6 +74,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...securityRoutes(pool, config, { limiter }),
     ...passkeyRoutes(pool, config, passkeyLib, { limiter, securityLog }),
     ...adminRoutes(pool, config, { limiter, securityLog }),
+    ...catalogueRoutes(pool),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);
