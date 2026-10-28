@@ -10,7 +10,8 @@ const group4 = (secret) => secret.match(/.{1,4}/g).join(' ');
 export function securityRoutes(pool, config, { limiter }) {
   const page = (response, title, body, status = 200) => sendPage(response, status, title, html`<h1>${title}</h1>
 ${body}
-<p><a href="/">Retour à l'accueil</a></p>`);
+<p><a href="/">Retour à l'accueil</a></p>
+<form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>`);
 
   async function overview(request, response, { error = null, notice = null, status = 200 } = {}) {
     const id = request.session.accountId;

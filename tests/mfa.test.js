@@ -171,7 +171,9 @@ describe('/compte/securite', () => {
     const cookie = cookieOf(await post('/connexion', { email: 'lea@example.org', password: PASSWORD }));
     const status = await get('/compte/securite', cookie);
     assert.equal(status.status, 200);
-    assert.ok((await status.text()).includes('Activer le code à 6 chiffres'));
+    const statusText = await status.text();
+    assert.ok(statusText.includes('Activer le code à 6 chiffres'));
+    assert.ok(statusText.includes('action="/deconnexion"'));
 
     const start = await post('/compte/securite/totp', {}, cookie);
     const text = await start.text();

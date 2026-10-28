@@ -36,11 +36,12 @@ document.getElementById('passkey-add')?.addEventListener('click', async () => {
 });
 
 document.getElementById('passkey-elevate')?.addEventListener('click', async (event) => {
+  const retour = event.currentTarget.dataset.retour;
   try {
     const optionsJSON = await send('/cles/confirmation/options');
     const assertion = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON });
     await send('/cles/confirmation/verification', { response: assertion });
-    location.href = event.currentTarget.dataset.retour;
+    location.href = retour;
   } catch (error) {
     show(explain(error));
   }
