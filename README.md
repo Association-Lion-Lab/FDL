@@ -4,7 +4,7 @@ Une base communautaire pour partager, découvrir et importer des recettes dans M
 
 ## État
 
-Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. L’accès est construit : invitations, comptes, sessions, seconde étape (code à 6 chiffres, clés d’accès, codes de récupération) et pages d’administration des comptes. Le catalogue est lisible (vitrine, recherche, page recette), mais aucune saisie de recette, aucun stockage d’images ni envoi d’e-mail n’est encore disponible : les liens d’invitation et de réinitialisation se transmettent à la main.
+Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. L’accès est construit : invitations, comptes, sessions, seconde étape (code à 6 chiffres, clés d’accès, codes de récupération) et pages d’administration des comptes. Le catalogue est lisible (vitrine, recherche, page recette). Les invités écrivent et soumettent des recettes, les modérateurs les valident, et chacun peut signaler et noter ; en revanche aucun stockage d’images, aucun commentaire ni envoi d’e-mail n’est encore disponible : les liens d’invitation et de réinitialisation se transmettent à la main.
 
 FDL reste indépendant de Manger! et du futur service de scan PDF/photo. Manger! doit continuer à fonctionner sans FDL. Seules les contributions volontairement soumises à FDL y seront conservées.
 

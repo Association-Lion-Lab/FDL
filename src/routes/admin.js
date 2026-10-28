@@ -122,12 +122,29 @@ export function adminRoutes(pool, config, { limiter, securityLog }) {
     });
   };
 
+  const universesPage = async (response, status = 200, error = null) => {
+    const { rows } = await pool.query('SELECT slug, label FROM universes ORDER BY label');
+    sendPage(response, status, 'Univers', html`<h1>Univers</h1>
+${error ? html`<p class="error" role="alert">${error}</p>` : ''}
+<form method="post" action="/admin/univers">
+<label>Identifiant <input name="slug" required maxlength="40" pattern="[-a-z0-9]{1,40}"></label>
+<label>Nom <input name="label" required maxlength="40"></label>
+<button type="submit">Ajouter ou renommer</button>
+</form>
+<table>
+<tr><th>Identifiant</th><th>Nom</th></tr>
+${rows.map((r) => html`<tr><td>${r.slug}</td><td>${r.label}</td></tr>`)}
+</table>
+<p><a href="/admin">Retour</a></p>`);
+  };
+
   return {
     'GET /admin': staffOnly((request, response) => sendPage(response, 200, 'Administration', html`<h1>Administration</h1>
 <ul>
 <li><a href="/admin/invitations">Invitations</a></li>
 <li><a href="/admin/comptes">Comptes</a></li>
 <li><a href="/admin/journal">Journal</a></li>
+<li><a href="/admin/univers">Univers</a></li>
 <li><a href="/moderation">Modération</a></li>
 </ul>
 <p><a href="/">Retour à l'accueil</a></p>`)),
@@ -256,6 +273,24 @@ ${rows.map((r) => html`<tr><td>${r.display_name}</td><td>${r.email}</td><td>${r.
 ${rows.map((r) => html`<tr><td>${when(r.at)}</td><td>${r.actor}</td><td>${r.action}</td><td>${r.target}</td><td>${r.detail ? JSON.stringify(r.detail) : ''}</td></tr>`)}
 </table>
 <p><a href="/admin">Retour</a></p>`);
+    }),
+
+    'GET /admin/univers': staffOnly((request, response) => universesPage(response)),
+
+    // No delete: a version may reference a universe. Same slug = rename.
+    'POST /admin/univers': staffOnly(async (request, response) => {
+      const body = await readBody(request);
+      const slug = field(body, 'slug');
+      const label = field(body, 'label').trim();
+      if (!/^[a-z0-9-]{1,40}$/.test(slug) || label.length < 1 || [...label].length > 40) {
+        return universesPage(response, 400, 'Identifiant (a-z, 0-9, tirets, 40 max) ou nom (1 à 40 caractères) invalide.');
+      }
+      await transact(async (client) => {
+        await client.query(
+          'INSERT INTO universes (slug, label) VALUES ($1, $2) ON CONFLICT (slug) DO UPDATE SET label = EXCLUDED.label', [slug, label]);
+        await record(client, request, 'universe_saved', slug, { label });
+      });
+      redirect(response, '/admin/univers');
     }),
 
     'GET /admin/confirmation': staffOnly((request, response) =>

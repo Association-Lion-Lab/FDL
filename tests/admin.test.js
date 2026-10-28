@@ -151,6 +151,36 @@ describe('accounts', () => {
   });
 });
 
+describe('universes', () => {
+  it('adds a universe that shows in the search filter, renames it, logs each save', async () => {
+    const cookie = await login(await account('admin'));
+    assert.equal((await post('/admin/univers', { slug: 'monde', label: 'Cuisine du monde' }, cookie)).status, 303);
+    assert.ok((await (await get('/recherche', cookie)).text()).includes('Cuisine du monde'));
+    assert.equal((await post('/admin/univers', { slug: 'monde', label: 'Autour du monde' }, cookie)).status, 303);
+    const page = await (await get('/admin/univers', cookie)).text();
+    assert.ok(page.includes('Autour du monde') && !page.includes('Cuisine du monde'));
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM universes')).rows[0].n, 1);
+    assert.deepEqual((await adminLog()).map((r) => [r.action, r.target]), [['universe_saved', 'monde'], ['universe_saved', 'monde']]);
+  });
+
+  it('refuses a bad slug or label with 400, and anyone but an admin with 403', async () => {
+    const cookie = await login(await account('admin'));
+    for (const form of [{ slug: 'Monde !', label: 'x' }, { slug: 'monde', label: '' }, { slug: 'monde', label: 'x'.repeat(41) }]) {
+      assert.equal((await post('/admin/univers', form, cookie)).status, 400);
+    }
+    assert.equal((await pool.query('SELECT 1 FROM universes')).rowCount, 0);
+    const moderator = await login(await account('moderator'));
+    assert.equal((await get('/admin/univers', moderator)).status, 403);
+    assert.equal((await post('/admin/univers', { slug: 'monde', label: 'Monde' }, moderator)).status, 403);
+  });
+
+  it('escapes labels', async () => {
+    const cookie = await login(await account('admin'));
+    await post('/admin/univers', { slug: 'x', label: '<b>x</b>' }, cookie);
+    assert.ok(!(await (await get('/admin/univers', cookie)).text()).includes('<b>x</b>'));
+  });
+});
+
 describe('invitations', () => {
   it('shows the link once, never lists a token, revokes by hash', async () => {
     const cookie = await login(await account('admin'));

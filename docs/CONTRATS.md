@@ -1,6 +1,6 @@
 # Contrats initiaux
 
-Statut : contrat de départ pour la bêta. Sont implémentés aujourd’hui `GET /health`, `GET /ready`, les routes d’accès (section « Accès ») et les pages du catalogue (section « Catalogue ») ; les autres sections fixent les limites à respecter lors des prochaines tranches.
+Statut : contrat de départ pour la bêta. Sont implémentés aujourd’hui `GET /health`, `GET /ready`, les routes d’accès (section « Accès ») et les pages du catalogue (section « Catalogue ») et des contributions (section « Contributions ») ; les autres sections fixent les limites à respecter lors des prochaines tranches.
 
 ## HTTP
 
@@ -103,12 +103,13 @@ Réservées au rôle `admin` (les autres reçoivent `403` « Accès refusé ») 
 | `GET /admin/comptes` | liste des comptes |
 | `POST /admin/comptes/role`, `/bannir`, `/debannir` | changer le rôle, bannir (ferme ses sessions), débannir |
 | `POST /admin/comptes/reinitialiser` | lien de réinitialisation, montré une seule fois |
+| `GET`/`POST /admin/univers` | liste des univers et formulaire d'ajout : `slug` (`a-z`, `0-9`, tirets, 1 à 40) et `label` (1 à 40 caractères) ; un `slug` existant est renommé. Valeur invalide → `400`. Pas de suppression (une version peut y faire référence), pas de reconfirmation |
 | `GET /admin/journal` | cent dernières actions d'administration |
 | `GET`/`POST /admin/confirmation` | confirmation par code à 6 chiffres ou clé d'accès |
 
 Inviter un `moderator` ou un `admin`, changer un rôle, bannir, débannir et réinitialiser exigent une confirmation de moins de 5 minutes ; sinon la personne est renvoyée vers `/admin/confirmation`. Pour un `admin` qui a déjà une clé d'accès, il en va de même pour ajouter ou supprimer une clé, activer le code à 6 chiffres et régénérer les codes de récupération : les pages renvoient vers `/admin/confirmation?retour=/compte/securite`, les routes JSON répondent `403 elevation_required`. La première clé d'un compte reste ajoutable sans confirmation.
 
-Le journal de sécurité (`logs/securite.log`) et `/admin/journal` consignent aussi la création et la révocation d'une invitation `moderator` ou `admin` (`invitation_created`, `invitation_revoked`), avec le rôle et les 16 premiers caractères de l'empreinte du lien, jamais le lien. `rate_limited` n'est écrit qu'une fois par clé et par fenêtre de 15 minutes, au premier refus. Il reste toujours au moins un administrateur actif : le dernier ne peut être ni rétrogradé ni banni. Le rôle `moderator` n'a pas encore d'écran.
+Le journal de sécurité (`logs/securite.log`) et `/admin/journal` consignent aussi la création et la révocation d'une invitation `moderator` ou `admin` (`invitation_created`, `invitation_revoked`), avec le rôle et les 16 premiers caractères de l'empreinte du lien, jamais le lien. `rate_limited` n'est écrit qu'une fois par clé et par fenêtre de 15 minutes, au premier refus. Il reste toujours au moins un administrateur actif : le dernier ne peut être ni rétrogradé ni banni. Le rôle `moderator` n'a accès qu'à `/moderation` (section « Contributions »).
 
 Une réinitialisation (`/reinitialisation`) change le mot de passe et supprime les sessions, le code à 6 chiffres, les clés d'accès et les codes de récupération du compte.
 
@@ -165,7 +166,31 @@ Pages HTML réservées à une session complète pendant la bêta :
 | `GET /recherche` | paramètres `q`, `duree` (`15`, `30`, `60`), `regime` (`vegan`, `vegetarian`, `pescetarian`), `univers` (identifiant), `saison` (répétable : `spring`, `summer`, `autumn`, `winter`), `apres` (curseur) ; une valeur inconnue de `duree`, `regime` ou `saison` est ignorée ; curseur invalide → `400` « Lien de page invalide » |
 | `GET /recette?id=<id>` | recette publiée, dernière version ; identifiant invalide, inconnu ou recette non visible → `404` « Recette introuvable » |
 
-Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Photos, signalement, notes et import dans Manger! viendront avec les tranches suivantes.
+Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Photos, commentaires et import dans Manger! viendront avec les tranches suivantes. La moyenne des notes s'affiche sur la page et les cartes d'une recette (voir « Contributions »).
+
+## Contributions
+
+Pages HTML réservées à une session complète. Aucune n'est publique.
+
+| Route | Rôle |
+| --- | --- |
+| `GET /mes-recettes` | recettes de l'auteur, leur état et le motif de la dernière décision (c'est ainsi qu'il en est informé : pas d'e-mail) |
+| `GET /mes-recettes/edition`, `GET /mes-recettes/edition?id=<id>` | formulaire vide ou rempli avec le brouillon (sinon la dernière version) ; recette d'un autre, inconnue ou retirée → `404` |
+| `POST /mes-recettes/edition` | boutons `action` : `lignes` (renvoie la page avec des lignes d'ingrédients et d'étapes en plus, sans JavaScript), `brouillon`, `privee`, `publier`. `publier` exige la case `atteste_texte` (droit de publier le texte sous CC BY-SA 4.0). Brouillon limité à 256 Kio (corps plus gros ou brouillon stocké trop gros → `413`). Recette d'un autre ou retirée → `404`, rien d'écrit. Un envoi invalide renvoie le formulaire en `400` ; le brouillon est enregistré dans tous les cas |
+| `GET`/`POST /recette/signaler` | signalement d'une recette visible : `category` (`illegal`, `copyright`, `off_topic`, `spam`, `other`) et `detail` facultatif (1 000 caractères au plus). 10 par 15 minutes et par compte (`429` au-delà). Un second signalement ouvert du même compte sur la même recette donne la même page de remerciement sans nouvelle ligne. Un signalement ne masque jamais la recette |
+| `POST /recette/note` | `etoiles` de 1 à 5, une note par compte et par recette (une nouvelle note remplace l'ancienne). Recette non visible → `404` ; sa propre recette → `403` ; note invalide → `400` |
+| `GET /moderation`, `GET /moderation/version?id=<id>&version=<n>` | file de modération (rôles `moderator` et `admin`, les autres reçoivent `403`) : versions en attente avec leurs filtres automatiques, signalements ouverts ; aperçu d'une version |
+| `POST /moderation/decision` | `kind` : `accept`, `reject` (versions en attente), `remove` (retire la recette, ferme ses signalements), `dismiss` (classe un signalement) ; `motif` obligatoire. Pas de reconfirmation. Version ou recette inconnue → `404` ; motif absent ou hors de 1 à 500 caractères → `400` ; élément déjà décidé → `409` « Déjà traitée » |
+
+Les moyennes des notes sont affichées sur la page recette et sur les cartes ; la rangée « Les mieux notées » de la vitrine ne retient que les recettes qui ont au moins 3 notes.
+
+États d'une recette pour son auteur : brouillon, privée, en attente de modération, publiée, publiée avec une nouvelle version en attente, refusée, retirée. Une version a le statut `private`, `pending`, `published` ou `rejected`. Le catalogue public lit toujours la version publiée ; une recette publiée ne redevient jamais privée, et la version précédente reste publique pendant qu'une nouvelle attend. Une seule version est en attente à la fois : un nouvel envoi (public ou privé) remplace l'ancienne, qui passe à `rejected` avec la décision « Remplacée par une version plus récente. ». Un double envoi ne laisse donc qu'une version en attente.
+
+Confiance progressive : tant que l'auteur a moins de 3 recettes (non retirées) qui ont au moins une version publiée, chaque version publique passe par un modérateur. Ensuite elle est publiée directement, sauf si un filtre automatique la signale. Filtres : `link` (adresse `http://`, `https://` ou `www.` dans le titre, un ingrédient, une étape ou la provenance), `banned_word` (mot du fichier `mots-interdits.txt`, voir [EXPLOITATION.md](EXPLOITATION.md), comparé sans accents ni casse) et `duplicate` (titre identique, sans accents ni casse, à celui d'une recette visible). Une version signalée attend toujours un modérateur.
+
+Chaque décision de modération a un motif de 1 à 500 caractères, écrit dans `moderation_decisions` et visible par l'auteur sur `/mes-recettes`.
+
+Actions ajoutées à `admin_log` (journal d'administration, cible = identifiant de la recette, détail = recette, version et motif) : `recipe_accepted`, `recipe_rejected`, `recipe_removed`, `report_dismissed`. L'écran `/admin/univers` ajoute `universe_saved` (cible = identifiant de l'univers).
 
 ## Limites de la bêta à vérifier
 
