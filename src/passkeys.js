@@ -59,8 +59,8 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
 
     'POST /cles/inscription/verification': async (request, response) => {
       const { accountId } = request.session;
-      const body = await readBody(request);
       const expectedChallenge = await takeChallenge(request.session);
+      const body = await readBody(request);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       if (!expectedChallenge || !name || name.length > 40) return failed(response);
       let info;
@@ -70,6 +70,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
           expectedChallenge,
           expectedOrigin: config.origin,
           expectedRPID: config.rpID,
+          requireUserVerification: false,
         });
         if (!result.verified) return failed(response);
         info = result.registrationInfo.credential;
@@ -83,6 +84,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
         [info.id, accountId, Buffer.from(info.publicKey), info.counter, info.transports ?? null, name]
       );
       if (!rowCount) return failed(response);
+      response.setHeader('cache-control', 'no-store');
       sendJson(response, 200, {
         ok: true,
         ...(firstFactor ? { recoveryCodes: await createRecoveryCodes(pool, accountId) } : {}),
@@ -107,8 +109,8 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
       // Same key as the TOTP step: switching method does not reset the count.
       const key = `verification:${session.accountId}`;
       if (limiter.hit(key)) return sendError(response, 429, 'too_many', 'Trop de tentatives. Réessayez dans 15 minutes.');
-      const body = await readBody(request);
       const expectedChallenge = await takeChallenge(session);
+      const body = await readBody(request);
       const id = typeof body.response?.id === 'string' ? body.response.id : '';
       const { rows: [row] } = await pool.query(
         'SELECT id, public_key, counter, transports FROM passkeys WHERE id = $1 AND account_id = $2',
@@ -121,6 +123,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
           expectedChallenge,
           expectedOrigin: config.origin,
           expectedRPID: config.rpID,
+          requireUserVerification: false,
           credential: {
             id: row.id,
             publicKey: new Uint8Array(row.public_key),

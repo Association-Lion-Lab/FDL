@@ -1,6 +1,10 @@
 const message = document.getElementById('passkey-message');
 const show = (text) => { message.textContent = text; };
 
+const explain = (error) => (error.name === 'NotAllowedError'
+  ? 'Opération annulée.'
+  : "La clé d'accès n'a pas pu être utilisée. Réessayez ou utilisez un autre moyen.");
+
 async function send(path, body) {
   const response = await fetch(path, {
     method: 'POST',
@@ -8,7 +12,7 @@ async function send(path, body) {
     body: JSON.stringify(body ?? {}),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error?.message ?? 'Une erreur est survenue.');
+  if (!response.ok) throw new Error('server');
   return data;
 }
 
@@ -23,7 +27,7 @@ document.getElementById('passkey-add')?.addEventListener('click', async () => {
     list.replaceChildren(...result.recoveryCodes.map((code) => Object.assign(document.createElement('li'), { textContent: code })));
     show('Clé ajoutée. Notez ces codes de récupération : ils ne seront plus affichés. Rechargez la page ensuite.');
   } catch (error) {
-    show(error.message);
+    show(explain(error));
   }
 });
 
@@ -34,6 +38,6 @@ document.getElementById('passkey-login')?.addEventListener('click', async () => 
     await send('/cles/connexion/verification', { response: assertion });
     location.href = '/';
   } catch (error) {
-    show(error.message);
+    show(explain(error));
   }
 });

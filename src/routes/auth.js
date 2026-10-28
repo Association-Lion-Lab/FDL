@@ -95,16 +95,16 @@ async function linkIsLive(pool, code, kind) {
   return rowCount > 0;
 }
 
-const verificationPage = (response, error = null, status = 200) => form(response, {
+const verificationPage = (response, hasKey, error = null, status = 200) => form(response, {
   status,
   title: 'Vérification en deux étapes',
   action: '/connexion/verification',
   button: 'Vérifier',
   error,
-  fields: html`<button type="button" id="passkey-login">Utiliser ma clé d'accès</button>
+  fields: html`${hasKey ? html`<button type="button" id="passkey-login">Utiliser ma clé d'accès</button>
 <p id="passkey-message" role="alert"></p>
 <script src="/static/simplewebauthn.js"></script>
-<script src="/static/fdl-passkeys.js"></script>
+<script src="/static/fdl-passkeys.js"></script>` : ''}
 ${input('Code à 6 chiffres ou code de récupération', 'code', 'text')}`,
 });
 
@@ -118,6 +118,8 @@ export async function promoteSession(pool, session) {
 
 export function authRoutes(pool, config, { limiter }) {
   const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
+  const hasPasskey = async (accountId) =>
+    (await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId])).rowCount > 0;
 
   return {
     'GET /': (request, response) => sendPage(response, 200, 'Faim de Lion', html`<h1>Faim de Lion</h1>
@@ -200,9 +202,9 @@ export function authRoutes(pool, config, { limiter }) {
       );
     },
 
-    'GET /connexion/verification': (request, response) => {
+    'GET /connexion/verification': async (request, response) => {
       if (!request.session) return redirect(response, '/connexion');
-      return request.session.mfaOk ? redirect(response, '/') : verificationPage(response);
+      return request.session.mfaOk ? redirect(response, '/') : verificationPage(response, await hasPasskey(request.session.accountId));
     },
 
     'POST /connexion/verification': async (request, response) => {
@@ -215,7 +217,7 @@ export function authRoutes(pool, config, { limiter }) {
       const ok = /^\d{6}$/.test(code.replace(/\s/g, ''))
         ? await verifyTotp(pool, config.secretKey, session.accountId, code)
         : await useRecoveryCode(pool, session.accountId, code);
-      if (!ok) return verificationPage(response, 'Code incorrect.', 400);
+      if (!ok) return verificationPage(response, await hasPasskey(session.accountId), 'Code incorrect.', 400);
       limiter.reset(key);
       redirect(response, '/', await promoteSession(pool, session));
     },

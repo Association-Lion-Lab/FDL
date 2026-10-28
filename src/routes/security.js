@@ -92,11 +92,25 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
     'POST /compte/securite/cles/suppression': async (request, response) => {
       const { accountId, role } = request.session;
       const id = field(await readBody(request), 'id');
-      const { rows: keys } = await pool.query('SELECT id FROM passkeys WHERE account_id = $1', [accountId]);
-      if ((role === 'moderator' || role === 'admin') && keys.length === 1 && keys[0].id === id) {
+      // The account row lock serializes concurrent deletes, so staff keep their last key.
+      const client = await pool.connect();
+      let refused = false;
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+        const { rows: keys } = await client.query('SELECT id FROM passkeys WHERE account_id = $1', [accountId]);
+        refused = (role === 'moderator' || role === 'admin') && keys.length === 1 && keys[0].id === id;
+        if (!refused) await client.query('DELETE FROM passkeys WHERE id = $1 AND account_id = $2', [id, accountId]);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      if (refused) {
         return overview(request, response, { error: "Votre rôle exige une seconde étape : gardez au moins une clé d'accès.", status: 400 });
       }
-      await pool.query('DELETE FROM passkeys WHERE id = $1 AND account_id = $2', [id, accountId]);
       redirect(response, '/compte/securite');
     },
 

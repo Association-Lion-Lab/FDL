@@ -10,14 +10,21 @@ import { createTestDatabase } from './helpers/db.js';
 
 const config = { origin: 'http://localhost', rpID: 'localhost' };
 let verified = true;
+const calls = {};
 const lib = {
-  generateRegistrationOptions: async () => ({ challenge: 'reg-challenge' }),
-  verifyRegistrationResponse: async () => ({
-    verified,
-    registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1, 2, 3]), counter: 0, transports: ['usb'] } },
-  }),
+  generateRegistrationOptions: async (args) => { calls.regOptions = args; return { challenge: 'reg-challenge' }; },
+  verifyRegistrationResponse: async (args) => {
+    calls.regVerify = args;
+    return {
+      verified,
+      registrationInfo: { credential: { id: 'cred-1', publicKey: new Uint8Array([1, 2, 3, 250]), counter: 0, transports: ['usb'] } },
+    };
+  },
   generateAuthenticationOptions: async () => ({ challenge: 'auth-challenge' }),
-  verifyAuthenticationResponse: async () => ({ verified, authenticationInfo: { newCounter: 5 } }),
+  verifyAuthenticationResponse: async (args) => {
+    calls.authVerify = args;
+    return { verified, authenticationInfo: { newCounter: 7 } };
+  },
 };
 let testDb;
 let pool;
@@ -26,6 +33,7 @@ let base;
 
 beforeEach(async () => {
   verified = true;
+  for (const k of Object.keys(calls)) delete calls[k];
   testDb = await createTestDatabase();
   pool = testDb.pool;
   await migrate(pool);
@@ -90,6 +98,12 @@ describe('passkey registration', () => {
     const { rows } = await pool.query('SELECT id, name, counter FROM passkeys');
     assert.deepEqual(rows.map((r) => [r.id, r.name, r.counter]), [['cred-1', 'Ma clé', '0']]);
     assert.equal(await challengeOf(id), null);
+    assert.equal(calls.regVerify.expectedChallenge, 'reg-challenge');
+    assert.equal(calls.regVerify.expectedOrigin, config.origin);
+    assert.equal(calls.regVerify.expectedRPID, config.rpID);
+    assert.equal(calls.regVerify.requireUserVerification, false);
+    assert.equal(calls.regOptions.userID.toString(), String(id));
+    assert.equal(calls.regOptions.rpID, config.rpID);
     const again = await post('/cles/inscription/verification', { name: 'Ma clé', response: {} }, cookie);
     assert.equal(again.status, 400);
   });
@@ -111,15 +125,24 @@ describe('passkey sign-in', () => {
 
   it('promotes a half session to a new full one and updates the counter', async () => {
     const id = await account('lea@example.org');
-    await addKey(id, 'cred-1');
+    const full = await session(id, true);
+    await post('/cles/inscription/options', {}, full);
+    await post('/cles/inscription/verification', { name: 'k', response: {} }, full);
     const cookie = await session(id, false);
     await post('/cles/connexion/options', {}, cookie);
     const response = await post('/cles/connexion/verification', { response: { id: 'cred-1' } }, cookie);
     assert.equal(response.status, 200);
+    assert.equal(calls.authVerify.expectedChallenge, 'auth-challenge');
+    assert.equal(calls.authVerify.expectedOrigin, config.origin);
+    assert.equal(calls.authVerify.expectedRPID, config.rpID);
+    assert.equal(calls.authVerify.requireUserVerification, false);
+    assert.equal(calls.authVerify.credential.id, 'cred-1');
+    assert.deepEqual([...calls.authVerify.credential.publicKey], [1, 2, 3, 250]);
+    assert.equal(typeof calls.authVerify.credential.counter, 'number');
     const fresh = response.headers.get('set-cookie').split(';')[0];
     assert.notEqual(fresh, cookie);
     assert.equal((await fetch(`${base}/`, { headers: { cookie: fresh } })).status, 200);
-    assert.equal((await pool.query('SELECT counter FROM passkeys')).rows[0].counter, '5');
+    assert.equal((await pool.query('SELECT counter FROM passkeys')).rows[0].counter, '7');
     assert.equal((await fetch(`${base}/`, { redirect: 'manual', headers: { cookie } })).status, 303);
   });
 
@@ -166,6 +189,69 @@ describe('passkey deletion and scripts', () => {
     });
     assert.equal(response.status, 400);
     assert.equal((await pool.query('SELECT 1 FROM passkeys')).rowCount, 1);
+  });
+
+  const del = (id, cookie) => fetch(`${base}/compte/securite/cles/suppression`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { origin: config.origin, 'content-type': 'application/x-www-form-urlencoded', cookie },
+    body: new URLSearchParams({ id }),
+  });
+  const key = (accountId, id) => pool.query(
+    "INSERT INTO passkeys (id, account_id, public_key, counter, name) VALUES ($1, $2, '\x01', 0, 'k')", [id, accountId]);
+
+  it('deletes an own key', async () => {
+    const id = await account('lea@example.org');
+    await key(id, 'k1');
+    const response = await del('k1', await session(id, true));
+    assert.equal(response.status, 303);
+    assert.equal((await pool.query('SELECT 1 FROM passkeys')).rowCount, 0);
+  });
+
+  it("does not delete another account's key", async () => {
+    const lea = await account('lea@example.org');
+    const other = await account('autre@example.org');
+    await key(other, 'k-other');
+    await del('k-other', await session(lea, true));
+    assert.equal((await pool.query('SELECT 1 FROM passkeys')).rowCount, 1);
+  });
+
+  it('keeps one key of a moderator under concurrent deletes', async () => {
+    const id = await account('mod@example.org', 'moderator');
+    await key(id, 'k1');
+    await key(id, 'k2');
+    const cookie = await session(id, true);
+    await Promise.all([del('k1', cookie), del('k2', cookie)]);
+    assert.equal((await pool.query('SELECT 1 FROM passkeys')).rowCount, 1);
+  });
+
+  it('gates sign-in routes on a half session', async () => {
+    const id = await account('lea@example.org');
+    const full = await session(id, true);
+    for (const path of ['/cles/connexion/options', '/cles/connexion/verification']) {
+      assert.equal((await post(path, { response: { id: 'x' } }, full)).status, 400);
+      assert.equal((await post(path, { response: { id: 'x' } })).status, 400);
+    }
+  });
+
+  it('consumes the challenge even when the body is malformed', async () => {
+    const id = await account('lea@example.org');
+    const cookie = await session(id, false);
+    await post('/cles/connexion/options', {}, cookie);
+    const bad = await fetch(`${base}/cles/connexion/verification`, {
+      method: 'POST', headers: { origin: config.origin, 'content-type': 'application/json', cookie }, body: '{',
+    });
+    assert.equal(bad.status, 400);
+    assert.equal(await challengeOf(id), null);
+  });
+
+  it('shows the passkey button only when the account has a key', async () => {
+    const id = await account('lea@example.org');
+    const cookie = await session(id, false);
+    const get = async () => (await fetch(`${base}/connexion/verification`, { headers: { cookie } })).text();
+    assert.ok(!(await get()).includes('passkey-login'));
+    await key(id, 'k1');
+    assert.ok((await get()).includes('passkey-login'));
   });
 
   it('serves the browser bundle and the FDL script', async () => {
