@@ -10,6 +10,7 @@ import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { contributionRoutes } from './routes/contributions.js';
+import { moderationRoutes } from './routes/moderation.js';
 import { createSecurityLog } from './securitylog.js';
 import { securityRoutes } from './routes/security.js';
 import { loadSession } from './sessions.js';
@@ -77,6 +78,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...adminRoutes(pool, config, { limiter, securityLog }),
     ...catalogueRoutes(pool),
     ...contributionRoutes(pool, config),
+    ...moderationRoutes(pool),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);

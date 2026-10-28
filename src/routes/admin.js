@@ -128,6 +128,7 @@ export function adminRoutes(pool, config, { limiter, securityLog }) {
 <li><a href="/admin/invitations">Invitations</a></li>
 <li><a href="/admin/comptes">Comptes</a></li>
 <li><a href="/admin/journal">Journal</a></li>
+<li><a href="/moderation">Modération</a></li>
 </ul>
 <p><a href="/">Retour à l'accueil</a></p>`)),
 

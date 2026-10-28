@@ -90,6 +90,31 @@ export const STATE_LABELS = {
   published_pending: 'Publiée, nouvelle version en attente', rejected: 'Refusée', removed: 'Retirée',
 };
 
+// Shared by /recette and the moderation preview; `banner` is an optional status line.
+export function recipeArticle(recipe, banner = '') {
+  const published = recipe.publishedAt?.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
+  return html`<article>
+${banner}<h1>${recipe.title}</h1>
+<p>Par ${author(recipe.author)}</p>
+<ul class="facts">
+<li>${recipe.minutes} min</li>
+<li>${recipe.servings} portions</li>
+<li>${DIET_LABELS[recipe.diet]}</li>
+${recipe.seasons.length ? html`<li>${recipe.seasons.map((s) => SEASON_LABELS[s]).join(', ')}</li>` : ''}
+${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
+</ul>
+<h2>Ingrédients</h2>
+<ul>${recipe.ingredients.map((i) => html`<li>${ingredientLine(i)}</li>`)}</ul>
+<h2>Étapes</h2>
+<ol>${recipe.steps.map((s) => html`<li><strong>${STEP_LABELS[s.kind]}${s.minutes ? ` (${s.minutes} min)` : ''}</strong> ${s.instruction}</li>`)}</ol>
+<p>Provenance : ${recipe.provenance}${recipe.sourceUrl ? html` (<a href="${recipe.sourceUrl}" rel="noopener noreferrer">source</a>)` : ''}</p>
+<p>Texte sous licence CC BY-SA 4.0 (<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.fr" rel="license">conditions</a>).</p>
+<p>Version ${recipe.version}${published ? html`, publiée le ${published}` : ''}</p>
+<button type="button" id="print">Imprimer</button>
+</article>
+<script src="/static/fdl-print.js"></script>`;
+}
+
 export function catalogueRoutes(pool) {
   return {
     'GET /': async (request, response) => {
@@ -141,27 +166,7 @@ ${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suiva
         recipe = await getRecipe(pool, id);
         if (!recipe) return notFound(response);
       }
-      const published = recipe.publishedAt?.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
-      show(response, 200, recipe.title, html`<article>
-${banner}<h1>${recipe.title}</h1>
-<p>Par ${author(recipe.author)}</p>
-<ul class="facts">
-<li>${recipe.minutes} min</li>
-<li>${recipe.servings} portions</li>
-<li>${DIET_LABELS[recipe.diet]}</li>
-${recipe.seasons.length ? html`<li>${recipe.seasons.map((s) => SEASON_LABELS[s]).join(', ')}</li>` : ''}
-${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
-</ul>
-<h2>Ingrédients</h2>
-<ul>${recipe.ingredients.map((i) => html`<li>${ingredientLine(i)}</li>`)}</ul>
-<h2>Étapes</h2>
-<ol>${recipe.steps.map((s) => html`<li><strong>${STEP_LABELS[s.kind]}${s.minutes ? ` (${s.minutes} min)` : ''}</strong> ${s.instruction}</li>`)}</ol>
-<p>Provenance : ${recipe.provenance}${recipe.sourceUrl ? html` (<a href="${recipe.sourceUrl}" rel="noopener noreferrer">source</a>)` : ''}</p>
-<p>Texte sous licence CC BY-SA 4.0 (<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.fr" rel="license">conditions</a>).</p>
-<p>Version ${recipe.version}${published ? html`, publiée le ${published}` : ''}</p>
-<button type="button" id="print">Imprimer</button>
-</article>
-<script src="/static/fdl-print.js"></script>`);
+      show(response, 200, recipe.title, recipeArticle(recipe, banner));
     },
 
     'GET /static/fdl-print.js': (request, response) => {
