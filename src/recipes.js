@@ -54,6 +54,20 @@ export function checkFields(fields) {
   return { title, minutes, servings, diet, tags, seasons, universe, ingredients: cleanIngredients, steps: cleanSteps, provenance, sourceUrl };
 }
 
+// Inserts a validated version with its search vector. Only a published one gets published_at.
+export async function insertVersion(client, id, version, f, status, flags = []) {
+  const words = [...f.ingredients.map((i) => i.name), ...f.tags].join(' ');
+  await client.query(
+    `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, tags, seasons, universe,
+       ingredients, steps, provenance, source_url, search, submitted_at, published_at, status, flags)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+       setweight(to_tsvector('fdl_fr', $3), 'A') || setweight(to_tsvector('fdl_fr', $14), 'B'), now(),
+       CASE WHEN $15 = 'published' THEN now() END, $15, $16)`,
+    [id, version, f.title, f.minutes, f.servings, f.diet, f.tags, f.seasons, f.universe,
+      JSON.stringify(f.ingredients), JSON.stringify(f.steps), f.provenance, f.sourceUrl, words, status, flags]
+  );
+}
+
 export async function publishVersion(db, { recipeId = null, authorId = null, fields }) {
   const f = checkFields(fields);
   const client = await db.connect();
@@ -72,15 +86,7 @@ export async function publishVersion(db, { recipeId = null, authorId = null, fie
         [id]
       ));
     }
-    const words = [...f.ingredients.map((i) => i.name), ...f.tags].join(' ');
-    await client.query(
-      `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, tags, seasons, universe,
-         ingredients, steps, provenance, source_url, search, submitted_at, published_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-         setweight(to_tsvector('fdl_fr', $3), 'A') || setweight(to_tsvector('fdl_fr', $14), 'B'), now(), now(), 'published')`,
-      [id, version, f.title, f.minutes, f.servings, f.diet, f.tags, f.seasons, f.universe,
-        JSON.stringify(f.ingredients), JSON.stringify(f.steps), f.provenance, f.sourceUrl, words]
-    );
+    await insertVersion(client, id, version, f, 'published');
     await client.query(
       "UPDATE recipes SET visibility = 'public', published_version = $2, published_at = coalesce(published_at, now()) WHERE id = $1",
       [id, version]
@@ -98,7 +104,7 @@ export async function publishVersion(db, { recipeId = null, authorId = null, fie
 }
 
 // Joins shared by the listing and the recipe page: only public, published, from a non-banned author.
-const VISIBLE = `FROM recipes r
+export const VISIBLE = `FROM recipes r
   JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
   LEFT JOIN accounts a ON a.id = r.author_id
   LEFT JOIN universes u ON u.slug = v.universe
