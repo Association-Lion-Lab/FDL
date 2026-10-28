@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import * as OTPAuth from 'otpauth';
 
-import { hashPassword } from '../src/accounts.js';
+import { createLink, hashPassword } from '../src/accounts.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
 import { startTotp, verifyTotp } from '../src/mfa.js';
@@ -142,6 +142,30 @@ describe('sessions', () => {
     await pool.query("UPDATE accounts SET role = 'admin'");
     await pool.query("UPDATE sessions SET created_at = now() - interval '13 hours'");
     assert.equal((await send('/', { cookie })).headers.get('location'), '/connexion');
+  });
+});
+
+describe('staff_login on every sign-in path', () => {
+  const count = async () => (await logLines()).filter((l) => l.event === 'staff_login').length;
+
+  it('writes exactly one line for a passkey sign-in', async () => {
+    const id = await account();
+    await addKey(id);
+    const half = `fdl_session=${await openSession(pool, id, { mfaOk: false })}`;
+    await send('/cles/connexion/options', { method: 'POST', json: {}, cookie: half });
+    const response = await send('/cles/connexion/verification', { method: 'POST', json: { response: { id: 'k1' } }, cookie: half });
+    assert.equal(response.status, 200);
+    assert.equal(await count(), 1);
+  });
+
+  it('writes one line for a staff sign-up from an invitation', async () => {
+    const link = await createLink(pool, { kind: 'invitation', role: 'moderator' });
+    const response = await send('/inscription', {
+      method: 'POST',
+      form: { code: link, displayName: 'Nouveau', email: 'new@example.org', password: PASSWORD, confirm: PASSWORD },
+    });
+    assert.equal(response.headers.get('location'), '/compte/securite?obligatoire=1');
+    assert.equal(await count(), 1);
   });
 });
 

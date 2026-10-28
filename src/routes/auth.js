@@ -108,15 +108,19 @@ const verificationPage = (response, hasKey, error = null, status = 200) => form(
 ${input('Code à 6 chiffres ou code de récupération', 'code', 'text')}`,
 });
 
-// Replaces a half session with a full one and returns its cookie.
-export async function promoteSession(pool, session, request, securityLog) {
-  const staff = session.role === 'moderator' || session.role === 'admin';
-  // Logged first: if the log fails, the half session is left as it was and no full one exists.
-  if (staff) securityLog('staff_login', { accountId: session.accountId, ip: clientIp(request) });
-  await closeSession(pool, session.tokenHash);
-  const token = await openSession(pool, session.accountId, { mfaOk: true });
+// The one place that opens a session at sign-in: replaces `old` (if any) and returns the cookie.
+// A full staff session is logged (staff_login) first: if the log fails, nothing was opened or closed.
+async function startSession(pool, request, securityLog, { accountId, role, mfaOk, old }) {
+  const staff = role === 'moderator' || role === 'admin';
+  if (staff && mfaOk) securityLog('staff_login', { accountId, ip: clientIp(request) });
+  if (old) await closeSession(pool, old.tokenHash);
+  const token = await openSession(pool, accountId, { mfaOk });
   return sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS);
 }
+
+// Replaces a half session with a full one and returns its cookie.
+export const promoteSession = (pool, session, request, securityLog) =>
+  startSession(pool, request, securityLog, { accountId: session.accountId, role: session.role, mfaOk: true, old: session });
 
 export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
   const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
@@ -146,13 +150,10 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
       if (result.error) return signupPage(response, code, values, SIGNUP_ERRORS[result.error], 400);
       const { rows: [account] } = await pool.query('SELECT role FROM accounts WHERE id = $1', [result.accountId]);
       const staff = account.role === 'moderator' || account.role === 'admin';
-      if (request.session) await closeSession(pool, request.session.tokenHash);
-      const token = await openSession(pool, result.accountId, { mfaOk: true });
-      redirect(
-        response,
-        staff ? '/compte/securite?obligatoire=1' : '/compte/securite',
-        sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS)
-      );
+      const cookie = await startSession(pool, request, securityLog, {
+        accountId: result.accountId, role: account.role, mfaOk: true, old: request.session,
+      });
+      redirect(response, staff ? '/compte/securite?obligatoire=1' : '/compte/securite', cookie);
     },
 
     'GET /reinitialisation': async (request, response) => {
@@ -202,15 +203,10 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
 
       limiter.reset(emailKey); // never the IP key: it must not be clearable by an account holder
       const mfaOk = !(await hasSecondFactor(pool, account.id));
-      const staff = account.role === 'moderator' || account.role === 'admin';
-      if (staff && mfaOk) securityLog('staff_login', { accountId: account.id, ip }); // before any session exists
-      if (request.session) await closeSession(pool, request.session.tokenHash);
-      const token = await openSession(pool, account.id, { mfaOk });
-      redirect(
-        response,
-        mfaOk ? '/' : '/connexion/verification',
-        sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS)
-      );
+      const cookie = await startSession(pool, request, securityLog, {
+        accountId: account.id, role: account.role, mfaOk, old: request.session,
+      });
+      redirect(response, mfaOk ? '/' : '/connexion/verification', cookie);
     },
 
     'GET /connexion/verification': async (request, response) => {
