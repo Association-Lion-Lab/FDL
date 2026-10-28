@@ -109,14 +109,15 @@ ${input('Code à 6 chiffres ou code de récupération', 'code', 'text')}`,
 });
 
 // Replaces a half session with a full one and returns its cookie.
-export async function promoteSession(pool, session) {
+export async function promoteSession(pool, session, request, securityLog) {
   await closeSession(pool, session.tokenHash);
   const token = await openSession(pool, session.accountId, { mfaOk: true });
   const staff = session.role === 'moderator' || session.role === 'admin';
+  if (staff) securityLog('staff_login', { accountId: session.accountId, ip: clientIp(request) });
   return sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS);
 }
 
-export function authRoutes(pool, config, { limiter }) {
+export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
   const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
   const hasPasskey = async (accountId) =>
     (await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId])).rowCount > 0;
@@ -178,23 +179,32 @@ export function authRoutes(pool, config, { limiter }) {
       const ipKey = `connexion:${clientIp(request)}`;
       // Every attempt is counted up front, so a correct password cannot slip past a tripped limit.
       // IP first and short-circuit: a tripped IP adds no email key to the limiter.
-      if (limiter.hit(ipKey)) return tooMany(response);
+      const ip = clientIp(request);
+      const blocked = () => {
+        securityLog('rate_limited', { scope: 'connexion', ip });
+        return tooMany(response);
+      };
+      if (limiter.hit(ipKey)) return blocked();
       if (email.length > 254) return loginPage(response, '', BAD_LOGIN);
       const emailKey = `connexion-email:${email.toLowerCase()}`;
-      if (limiter.hit(emailKey)) return tooMany(response);
+      if (limiter.hit(emailKey)) return blocked();
 
       const { rows: [account] } = await pool.query(
         'SELECT id, role, password_hash, banned_at FROM accounts WHERE lower(email) = lower($1)',
         [email]
       );
       const valid = await verifyPassword(password, account?.password_hash ?? dummyHash);
-      if (!account || !valid || account.banned_at) return loginPage(response, email, BAD_LOGIN);
+      if (!account || !valid || account.banned_at) {
+        securityLog('login_failed', { email, ip });
+        return loginPage(response, email, BAD_LOGIN);
+      }
 
       limiter.reset(emailKey); // never the IP key: it must not be clearable by an account holder
       if (request.session) await closeSession(pool, request.session.tokenHash);
       const mfaOk = !(await hasSecondFactor(pool, account.id));
       const token = await openSession(pool, account.id, { mfaOk });
       const staff = account.role === 'moderator' || account.role === 'admin';
+      if (staff && mfaOk) securityLog('staff_login', { accountId: account.id, ip });
       redirect(
         response,
         mfaOk ? '/' : '/connexion/verification',
@@ -212,14 +222,21 @@ export function authRoutes(pool, config, { limiter }) {
       if (!session) return redirect(response, '/connexion');
       if (session.mfaOk) return redirect(response, '/');
       const key = `verification:${session.accountId}`;
-      if (limiter.hit(key)) return tooMany(response);
+      const who = { scope: 'verification', accountId: session.accountId, ip: clientIp(request) };
+      if (limiter.hit(key)) {
+        securityLog('rate_limited', who);
+        return tooMany(response);
+      }
       const code = field(await readBody(request), 'code');
       const ok = /^\d{6}$/.test(code.replace(/\s/g, ''))
         ? await verifyTotp(pool, config.secretKey, session.accountId, code)
         : await useRecoveryCode(pool, session.accountId, code);
-      if (!ok) return verificationPage(response, await hasPasskey(session.accountId), 'Code incorrect.', 400);
+      if (!ok) {
+        securityLog('mfa_failed', who);
+        return verificationPage(response, await hasPasskey(session.accountId), 'Code incorrect.', 400);
+      }
       limiter.reset(key);
-      redirect(response, '/', await promoteSession(pool, session));
+      redirect(response, '/', await promoteSession(pool, session, request, securityLog));
     },
 
     'POST /deconnexion': async (request, response) => {

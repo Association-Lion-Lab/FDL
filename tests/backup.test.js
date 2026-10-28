@@ -25,6 +25,8 @@ before(async () => {
   await mkdir(join(dataDir, 'photos'), { recursive: true });
   await mkdir(join(dataDir, 'tmp'));
   await mkdir(join(dataDir, 'backups'));
+  await mkdir(join(dataDir, 'logs'));
+  await writeFile(join(dataDir, 'logs', 'securite.log'), '{}');
   await writeFile(join(dataDir, 'photos', 'a.jpg'), 'photo-bytes');
   await writeFile(join(dataDir, 'tmp', 'x'), 'temp');
   await writeFile(join(dataDir, 'backups', 'old'), 'old');
@@ -52,6 +54,7 @@ test('createBackup writes dump, files and a manifest with correct checksums', as
   assert.equal(manifest.files['files/photos/a.jpg'], sha256('photo-bytes'));
   assert.equal(manifest.files['database.dump'], sha256(await readFile(join(dir, 'database.dump'))));
   assert.deepEqual(await readdir(join(dir, 'files')), ['photos']);
+  assert.ok(!Object.keys(manifest.files).some((f) => f.startsWith('files/logs/')));
 });
 
 test('createBackup rejects and leaves no manifest when pg_dump is missing', async () => {

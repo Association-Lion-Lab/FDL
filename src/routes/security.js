@@ -19,7 +19,7 @@ ${body}
     ]);
     const mandatory = new URL(request.url, 'http://x').searchParams.get('obligatoire') === '1';
     page(response, 'Sécurité du compte', html`
-${mandatory && !totp && !passkeys.length ? html`<p>Votre rôle exige une seconde étape de connexion : activez le code à 6 chiffres ou ajoutez une clé d'accès.</p>` : ''}
+${mandatory && !passkeys.length ? html`<p role="status">Votre rôle exige une clé d'accès : ajoutez-en une pour accéder au reste du site.</p>` : ''}
 ${notice ? html`<p role="status">${notice}</p>` : ''}
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <h2>Code à 6 chiffres</h2>

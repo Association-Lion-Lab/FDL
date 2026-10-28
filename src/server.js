@@ -6,7 +6,9 @@ import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from '.
 import { createApp, sendError, sendJson } from './http.js';
 import { createLimiter } from './ratelimit.js';
 import { passkeyRoutes } from './passkeys.js';
+import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
+import { createSecurityLog } from './securitylog.js';
 import { securityRoutes } from './routes/security.js';
 import { loadSession } from './sessions.js';
 import { parseCookies, redirect } from './web.js';
@@ -29,6 +31,9 @@ export const PUBLIC_PATHS = new Set([
   '/cles/connexion/verification',
 ]);
 
+// Sign-out and static assets are already public; these are the rest of what a keyless staff session may open.
+const KEY_PAGES = /^\/(?:compte\/securite(?:\/|$)|cles\/)/;
+
 export function buildBefore(pool, config) {
   return async (request, response) => {
     if (request.method === 'POST' && request.headers.origin !== config.origin) {
@@ -47,16 +52,27 @@ export function buildBefore(pool, config) {
       redirect(response, request.session ? '/connexion/verification' : '/connexion');
       return false;
     }
+    // Staff without a passkey can only reach the pages that let them add one.
+    const { role, accountId } = request.session;
+    if ((role === 'moderator' || role === 'admin') && !KEY_PAGES.test(pathname)) {
+      const { rowCount } = await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId]);
+      if (!rowCount) {
+        redirect(response, '/compte/securite?obligatoire=1');
+        return false;
+      }
+    }
     return true;
   };
 }
 
 export function buildRoutes(pool, log = console.error, config, passkeyLib) {
   const limiter = createLimiter();
+  const securityLog = createSecurityLog(config?.dataDir);
   return {
-    ...authRoutes(pool, config, { limiter }),
+    ...authRoutes(pool, config, { limiter, securityLog }),
     ...securityRoutes(pool, config, { limiter }),
-    ...passkeyRoutes(pool, config, passkeyLib, { limiter }),
+    ...passkeyRoutes(pool, config, passkeyLib, { limiter, securityLog }),
+    ...adminRoutes(pool, config, { limiter, securityLog }),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);

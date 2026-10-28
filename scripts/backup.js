@@ -9,8 +9,8 @@ import { loadConfig } from '../src/config.js';
 import { createPool, readSchemaVersion } from '../src/db.js';
 
 const run = promisify(execFile);
-// Exclus de la copie des données (Tâche 7 applique les mêmes règles).
-const EXCLUDED = new Set(['tmp', 'backups']);
+// Exclus de la copie des données ; logs/ (journal de sécurité) reste sur la machine.
+const EXCLUDED = new Set(['tmp', 'backups', 'logs']);
 
 export async function createBackup({ config, database, outDir }) {
   const createdAt = new Date().toISOString();

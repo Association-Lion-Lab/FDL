@@ -22,11 +22,14 @@ export async function loadSession(db, token) {
   if (typeof token !== 'string' || token === '') return null;
   const tokenHash = hashToken(token);
   const { rows } = await db.query(
-    `SELECT s.account_id, s.mfa_ok, s.elevated_until, s.expires_at <= now() AS expired,
+    // Staff sessions die after STAFF_HOURS even if the row was opened under a longer lifetime (role changed since).
+    `SELECT s.account_id, s.mfa_ok, s.elevated_until,
+            (s.expires_at <= now()
+             OR (a.role IN ('moderator', 'admin') AND s.created_at <= now() - make_interval(hours => $2::int))) AS expired,
             a.role, a.display_name, a.banned_at IS NOT NULL AS banned
      FROM sessions s JOIN accounts a ON a.id = s.account_id
      WHERE s.token_hash = $1`,
-    [tokenHash]
+    [tokenHash, STAFF_HOURS]
   );
   const row = rows[0];
   if (!row) return null;
@@ -47,6 +50,14 @@ export async function loadSession(db, token) {
 export async function closeSession(db, tokenHash) {
   await db.query('DELETE FROM sessions WHERE token_hash = $1', [tokenHash]);
 }
+
+export const requireElevated = (request) => {
+  const until = request.session?.elevatedUntil;
+  return Boolean(until) && new Date(until) > new Date();
+};
+
+export const elevateSession = (db, tokenHash) =>
+  db.query("UPDATE sessions SET elevated_until = now() + interval '5 minutes' WHERE token_hash = $1", [tokenHash]);
 
 export const sessionCookie = (token, maxAgeSeconds) =>
   `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;

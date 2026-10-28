@@ -5,7 +5,8 @@ import * as simplewebauthnServer from '@simplewebauthn/server';
 import { sendError, sendJson } from './http.js';
 import { createRecoveryCodes, hasSecondFactor } from './mfa.js';
 import { createLimiter } from './ratelimit.js';
-import { promoteSession } from './routes/auth.js';
+import { clientIp, promoteSession } from './routes/auth.js';
+import { elevateSession } from './sessions.js';
 import { readBody } from './web.js';
 
 const browserBundle = readFileSync(new URL('../node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js', import.meta.url));
@@ -17,7 +18,7 @@ const sendScript = (body) => (request, response) => {
   response.end(body);
 };
 
-export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limiter = createLimiter() } = {}) {
+export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limiter = createLimiter(), securityLog = () => {} } = {}) {
   const failed = (response) => sendError(response, 400, 'passkey_failed', FAILED);
 
   // Reads and clears the pending challenge in one statement, so it can be used once.
@@ -37,6 +38,70 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
   const listKeys = async (accountId) =>
     (await pool.query('SELECT id, transports FROM passkeys WHERE account_id = $1 ORDER BY created_at', [accountId])).rows
       .map((k) => ({ id: k.id, transports: k.transports ?? undefined }));
+
+  // `full` false serves the sign-in step (half session), true the re-authentication (full session).
+  const authOptions = (full) => async (request, response) => {
+    const session = request.session;
+    if (!session || session.mfaOk !== full) return failed(response);
+    const options = await lib.generateAuthenticationOptions({
+      rpID: config.rpID,
+      allowCredentials: await listKeys(session.accountId),
+      userVerification: 'preferred',
+    });
+    await saveChallenge(session, options);
+    sendJson(response, 200, options);
+  };
+
+  // Verifies the passkey assertion in the body against the pending challenge; true if it holds.
+  async function assertKey(request) {
+    const session = request.session;
+    const expectedChallenge = await takeChallenge(session);
+    const body = await readBody(request);
+    const id = typeof body.response?.id === 'string' ? body.response.id : '';
+    const { rows: [row] } = await pool.query(
+      'SELECT id, public_key, counter, transports FROM passkeys WHERE id = $1 AND account_id = $2',
+      [id, session.accountId]
+    );
+    if (!expectedChallenge || !row) return false;
+    try {
+      const result = await lib.verifyAuthenticationResponse({
+        response: body.response,
+        expectedChallenge,
+        expectedOrigin: config.origin,
+        expectedRPID: config.rpID,
+        requireUserVerification: false,
+        credential: {
+          id: row.id,
+          publicKey: new Uint8Array(row.public_key),
+          counter: Number(row.counter),
+          transports: row.transports ?? undefined,
+        },
+      });
+      if (!result.verified) return false;
+      await pool.query('UPDATE passkeys SET counter = $2 WHERE id = $1', [row.id, result.authenticationInfo.newCounter]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const assertion = (full, succeed) => async (request, response) => {
+    const session = request.session;
+    if (!session || session.mfaOk !== full) return failed(response);
+    // Sign-in shares its key with the TOTP step: switching method does not reset the count.
+    const key = `${full ? 'elevation' : 'verification'}:${session.accountId}`;
+    const who = { scope: full ? 'elevation' : 'verification', accountId: session.accountId, ip: clientIp(request) };
+    if (limiter.hit(key)) {
+      securityLog('rate_limited', who);
+      return sendError(response, 429, 'too_many', 'Trop de tentatives. Réessayez dans 15 minutes.');
+    }
+    if (!(await assertKey(request))) {
+      securityLog('mfa_failed', who);
+      return failed(response);
+    }
+    limiter.reset(key);
+    await succeed(request, response);
+  };
 
   return {
     'GET /static/simplewebauthn.js': sendScript(browserBundle),
@@ -91,54 +156,17 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
       });
     },
 
-    'POST /cles/connexion/options': async (request, response) => {
-      const session = request.session;
-      if (!session || session.mfaOk) return failed(response);
-      const options = await lib.generateAuthenticationOptions({
-        rpID: config.rpID,
-        allowCredentials: await listKeys(session.accountId),
-        userVerification: 'preferred',
-      });
-      await saveChallenge(session, options);
-      sendJson(response, 200, options);
-    },
-
-    'POST /cles/connexion/verification': async (request, response) => {
-      const session = request.session;
-      if (!session || session.mfaOk) return failed(response);
-      // Same key as the TOTP step: switching method does not reset the count.
-      const key = `verification:${session.accountId}`;
-      if (limiter.hit(key)) return sendError(response, 429, 'too_many', 'Trop de tentatives. Réessayez dans 15 minutes.');
-      const expectedChallenge = await takeChallenge(session);
-      const body = await readBody(request);
-      const id = typeof body.response?.id === 'string' ? body.response.id : '';
-      const { rows: [row] } = await pool.query(
-        'SELECT id, public_key, counter, transports FROM passkeys WHERE id = $1 AND account_id = $2',
-        [id, session.accountId]
-      );
-      if (!expectedChallenge || !row) return failed(response);
-      try {
-        const result = await lib.verifyAuthenticationResponse({
-          response: body.response,
-          expectedChallenge,
-          expectedOrigin: config.origin,
-          expectedRPID: config.rpID,
-          requireUserVerification: false,
-          credential: {
-            id: row.id,
-            publicKey: new Uint8Array(row.public_key),
-            counter: Number(row.counter),
-            transports: row.transports ?? undefined,
-          },
-        });
-        if (!result.verified) return failed(response);
-        await pool.query('UPDATE passkeys SET counter = $2 WHERE id = $1', [row.id, result.authenticationInfo.newCounter]);
-      } catch {
-        return failed(response);
-      }
-      limiter.reset(key);
-      response.setHeader('set-cookie', await promoteSession(pool, session));
+    'POST /cles/connexion/options': authOptions(false),
+    'POST /cles/connexion/verification': assertion(false, async (request, response) => {
+      response.setHeader('set-cookie', await promoteSession(pool, request.session, request, securityLog));
       sendJson(response, 200, { ok: true });
-    },
+    }),
+
+    // Re-authentication of a full staff session (/admin/confirmation).
+    'POST /cles/confirmation/options': authOptions(true),
+    'POST /cles/confirmation/verification': assertion(true, async (request, response) => {
+      await elevateSession(pool, request.session.tokenHash);
+      sendJson(response, 200, { ok: true });
+    }),
   };
 }
