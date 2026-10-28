@@ -190,3 +190,67 @@ describe('decisions', () => {
     assert.equal((await get(`/mes-recettes/edition?id=${target.id}`, author)).status, 404);
   });
 });
+
+describe('reports', () => {
+  const reporter = () => account('member');
+  async function published() {
+    const target = await pending();
+    await decide(pool, decision('accept', target));
+    return target.id;
+  }
+  const openReports = async (id) => (await pool.query('SELECT * FROM reports WHERE recipe_id = $1 AND closed_at IS NULL', [id])).rows;
+
+  it('shows the form, records a report and queues it for moderators', async () => {
+    const id = await published();
+    const who = await reporter();
+    assert.ok((await get(`/recette?id=${id}`, who)).text.includes(`/recette/signaler?id=${id}`));
+    const form = await get(`/recette/signaler?id=${id}`, who);
+    assert.equal(form.status, 200);
+    for (const c of ['illegal', 'copyright', 'off_topic', 'spam', 'other']) assert.ok(form.text.includes(`value="${c}"`), c);
+    const sent = await postTo('/recette/signaler', { id: String(id), category: 'spam', detail: '<b>pub</b>' }, who);
+    assert.equal(sent.status, 200);
+    assert.ok(sent.text.includes('Merci, votre signalement sera examiné.'));
+    const rows = await openReports(id);
+    assert.equal(rows.length, 1);
+    assert.equal(String(rows[0].reporter_id), String(who.id));
+    assert.ok((await get('/moderation', mod)).text.includes('&lt;b&gt;pub&lt;/b&gt;'));
+  });
+
+  it('answers a duplicate open report the same way without a second row', async () => {
+    const id = await published();
+    const who = await reporter();
+    await postTo('/recette/signaler', { id: String(id), category: 'spam' }, who);
+    const again = await postTo('/recette/signaler', { id: String(id), category: 'other', detail: 'encore' }, who);
+    assert.equal(again.status, 200);
+    assert.ok(again.text.includes('Merci, votre signalement sera examiné.'));
+    assert.equal((await openReports(id)).length, 1);
+  });
+
+  it('refuses an unknown category or a 1 001 character detail', async () => {
+    const id = await published();
+    const who = await reporter();
+    assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'nope' }, who)).status, 400);
+    assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'spam', detail: 'x'.repeat(1001) }, who)).status, 400);
+    assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'spam', detail: 'x'.repeat(1000) }, who)).status, 200);
+    assert.equal((await openReports(id)).length, 1);
+  });
+
+  it('answers 404 and writes nothing for an unknown or invisible recipe', async () => {
+    const hidden = await pending();
+    const who = await reporter();
+    for (const id of [String(hidden.id), '999999', 'abc', '99999999999999999999']) {
+      assert.equal((await postTo('/recette/signaler', { id, category: 'spam' }, who)).status, 404, id);
+      assert.equal((await get(`/recette/signaler?id=${id}`, who)).status, 404, id);
+    }
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM reports')).rows[0].n, 0);
+  });
+
+  it('lets 10 reports through per quarter hour and refuses the 11th', async () => {
+    const who = await reporter();
+    const ids = [];
+    for (let i = 0; i < 11; i++) ids.push(await published());
+    for (const id of ids.slice(0, 10)) assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'spam' }, who)).status, 200);
+    assert.equal((await postTo('/recette/signaler', { id: String(ids[10]), category: 'spam' }, who)).status, 429);
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM reports')).rows[0].n, 10);
+  });
+});

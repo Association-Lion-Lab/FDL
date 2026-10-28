@@ -166,7 +166,8 @@ ${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suiva
         recipe = await getRecipe(pool, id);
         if (!recipe) return notFound(response);
       }
-      show(response, 200, recipe.title, recipeArticle(recipe, banner));
+      show(response, 200, recipe.title, html`${recipeArticle(recipe, banner)}
+${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}`);
     },
 
     'GET /static/fdl-print.js': (request, response) => {

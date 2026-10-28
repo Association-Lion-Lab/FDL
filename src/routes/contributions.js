@@ -1,11 +1,14 @@
 import { getOwnRecipe, listMine, saveDraft, submitVersion } from '../contributions.js';
-import { DIETS, SEASONS, listUniverses } from '../recipes.js';
+import { DIETS, SEASONS, VISIBLE, listUniverses } from '../recipes.js';
 import { html, readBody, redirect } from '../web.js';
-import { field } from './auth.js';
+import { clientIp, field, tooMany } from './auth.js';
 import { DIET_LABELS, SEASON_LABELS, STATE_LABELS, STEP_LABELS, show } from './catalogue.js';
 
 const MAX_ID = 9223372036854775807n;
 const PREPARATION_OPTIONS = { unknown: 'non précisée', raw: 'cru', cooked: 'cuit' };
+const REPORT_CATEGORIES = {
+  illegal: 'Contenu illégal', copyright: "Atteinte aux droits d'auteur", off_topic: 'Hors sujet', spam: 'Publicité ou spam', other: 'Autre',
+};
 const ATTEST = "Je suis l'auteur de ce texte ou j'ai le droit de le publier sous licence CC BY-SA 4.0";
 
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>
@@ -86,8 +89,43 @@ ${steps.map((s) => html`<p><label>Type <select name="step_kind">${Object.entries
 </form>`);
 }
 
-export function contributionRoutes(pool, config) {
+function reportPage(response, id, { error = null, status = 200 } = {}) {
+  show(response, status, 'Signaler une recette', html`<h1>Signaler une recette</h1>
+${error ? html`<p class="error" role="alert">${error}</p>` : ''}
+<form method="post" action="/recette/signaler">
+<input type="hidden" name="id" value="${id}">
+<label>Catégorie <select name="category">${Object.entries(REPORT_CATEGORIES).map(([v, l]) => option(v, l, false))}</select></label>
+<label>Détail (facultatif, 1 000 caractères au plus) <textarea name="detail"></textarea></label>
+<button type="submit">Signaler</button>
+</form>`);
+}
+
+export function contributionRoutes(pool, config, { limiter }) {
+  const visible = async (id) => id && (await pool.query(`SELECT 1 ${VISIBLE} AND r.id = $1`, [id])).rowCount > 0;
   return {
+    'GET /recette/signaler': async (request, response) => {
+      const id = parseId(new URL(request.url, 'http://x').searchParams.get('id') ?? '');
+      if (!await visible(id)) return notFound(response);
+      reportPage(response, id);
+    },
+
+    'POST /recette/signaler': async (request, response) => {
+      const { accountId } = request.session;
+      if (limiter.hit(`report:${accountId}`, { scope: 'report', accountId, ip: clientIp(request) })) return tooMany(response);
+      const body = await readBody(request);
+      const id = parseId(field(body, 'id'));
+      if (!await visible(id)) return notFound(response);
+      const category = field(body, 'category');
+      const detail = field(body, 'detail').trim();
+      if (!(category in REPORT_CATEGORIES)) return reportPage(response, id, { error: 'Choisissez une catégorie.', status: 400 });
+      if (detail.length > 1000) return reportPage(response, id, { error: 'Le détail est limité à 1 000 caractères.', status: 400 });
+      // A second open report of the same account is the unique index's conflict: same answer, no row.
+      await pool.query('INSERT INTO reports (recipe_id, reporter_id, category, detail) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [id, accountId, category, detail]);
+      show(response, 200, 'Signalement envoyé', html`<h1>Signalement envoyé</h1>
+<p>Merci, votre signalement sera examiné.</p>`);
+    },
+
     'GET /mes-recettes': async (request, response) => {
       const items = await listMine(pool, request.session.accountId);
       show(response, 200, 'Mes recettes', html`<h1>Mes recettes</h1>

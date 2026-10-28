@@ -77,7 +77,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...passkeyRoutes(pool, config, passkeyLib, { limiter, securityLog }),
     ...adminRoutes(pool, config, { limiter, securityLog }),
     ...catalogueRoutes(pool),
-    ...contributionRoutes(pool, config),
+    ...contributionRoutes(pool, config, { limiter }),
     ...moderationRoutes(pool),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
