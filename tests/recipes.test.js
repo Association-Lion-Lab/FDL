@@ -166,7 +166,9 @@ describe('searchRecipes', () => {
   });
 
   it('rejects a tampered cursor', async () => {
-    const bad = ['zzz', cursor('[]'), cursor('{"t":"x","i":1}'), cursor('{"t":"2026-01-01T00:00:00Z","i":1e30}')];
+    const bad = ['zzz', cursor('[]'), cursor('{"t":"x","i":1}'), cursor('{"t":"2026-01-01T00:00:00Z","i":1e30}'),
+      ...['1', '2026-02-30', '2026-10-28 junk', '+275760-09-13T00:00:00.000Z', '2026-02-30T00:00:00.000000Z']
+        .map((t) => cursor(JSON.stringify({ t, i: 1 })))];
     for (const after of bad) await assert.rejects(searchRecipes(pool, {}, { after }), { code: 'bad_cursor' }, after);
   });
 });

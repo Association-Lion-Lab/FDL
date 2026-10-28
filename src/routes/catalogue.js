@@ -44,11 +44,16 @@ const ROWS = (season) => [
 ];
 
 function readFilters(params) {
-  const duree = params.get('duree');
-  const regime = params.get('regime');
-  const univers = params.get('univers');
+  // PostgreSQL refuses NUL in text: such a value is treated as absent.
+  const get = (name) => {
+    const value = params.get(name);
+    return value && !value.includes('\0') ? value : null;
+  };
+  const duree = get('duree');
+  const regime = get('regime');
+  const univers = get('univers');
   return {
-    q: params.get('q') ?? '',
+    q: get('q') ?? '',
     maxMinutes: DURATIONS.includes(duree) ? Number(duree) : null,
     diet: FILTER_DIETS.includes(regime) ? regime : null,
     universe: univers ? univers : null,

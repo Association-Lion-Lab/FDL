@@ -129,6 +129,15 @@ describe('catalogue pages', () => {
     const { status, text } = await page('/recherche?apres=zzz');
     assert.equal(status, 400);
     assert.ok(text.includes('Lien de page invalide'));
+    const dated = Buffer.from(JSON.stringify({ t: '2026-02-30', i: 1 })).toString('base64url');
+    assert.equal((await page(`/recherche?apres=${dated}`)).status, 400);
+  });
+
+  it('ignore NUL bytes in filters', async () => {
+    await publish({ title: 'Soupe' });
+    for (const query of ['q=%00', 'univers=%00', 'q=so%00upe', 'saison=winter%00']) {
+      assert.equal((await page(`/recherche?${query}`)).status, 200, query);
+    }
   });
 
   it('apply known filters and ignore unknown values', async () => {

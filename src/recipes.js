@@ -139,8 +139,10 @@ function readCursor(after) {
   } catch {
     throw badCursor();
   }
-  if (!value || typeof value !== 'object' || typeof value.t !== 'string' || Number.isNaN(Date.parse(value.t))
-    || !Number.isSafeInteger(value.i) || value.i <= 0) {
+  // Only the exact format searchRecipes writes; Date.parse alone accepts strings PostgreSQL refuses.
+  const validTime = typeof value?.t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(value.t)
+    && new Date(value.t).toISOString().slice(0, 19) === value.t.slice(0, 19);
+  if (!value || typeof value !== 'object' || !validTime || !Number.isSafeInteger(value.i) || value.i <= 0) {
     throw badCursor();
   }
   return value;
