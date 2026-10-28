@@ -90,6 +90,14 @@ describe('publishVersion and getRecipe', () => {
     assert.equal(await getRecipe(pool, 999999), null);
   });
 
+  it('hides a removed recipe', async () => {
+    const { id } = await publish({ title: 'Retirée' });
+    await publish({ title: 'Restante' });
+    await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [id]);
+    assert.deepEqual(await titles(), ['Restante']);
+    assert.equal(await getRecipe(pool, id), null);
+  });
+
   it('keeps the recipe of a deleted account, without author', async () => {
     const authorId = await account();
     const { id } = await publish({}, authorId);

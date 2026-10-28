@@ -23,7 +23,7 @@ function safeUrl(value) {
 }
 
 // Limits of docs/CONTRATS.md "Projection compatible avec Manger!". Returns the normalized fields.
-function checkFields(fields) {
+export function checkFields(fields) {
   const { title, minutes, servings, diet, tags = [], seasons = [], universe = null, ingredients, steps, provenance, sourceUrl = null } = fields;
   if (!text(title, 120)) throw invalid('Le titre doit faire de 1 à 120 caractères.');
   if (!int(minutes, 1, 1440)) throw invalid('La durée doit être un nombre entier de minutes, de 1 à 1 440.');
@@ -75,9 +75,9 @@ export async function publishVersion(db, { recipeId = null, authorId = null, fie
     const words = [...f.ingredients.map((i) => i.name), ...f.tags].join(' ');
     await client.query(
       `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, tags, seasons, universe,
-         ingredients, steps, provenance, source_url, search, submitted_at, published_at)
+         ingredients, steps, provenance, source_url, search, submitted_at, published_at, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-         setweight(to_tsvector('fdl_fr', $3), 'A') || setweight(to_tsvector('fdl_fr', $14), 'B'), now(), now())`,
+         setweight(to_tsvector('fdl_fr', $3), 'A') || setweight(to_tsvector('fdl_fr', $14), 'B'), now(), now(), 'published')`,
       [id, version, f.title, f.minutes, f.servings, f.diet, f.tags, f.seasons, f.universe,
         JSON.stringify(f.ingredients), JSON.stringify(f.steps), f.provenance, f.sourceUrl, words]
     );
@@ -102,7 +102,7 @@ const VISIBLE = `FROM recipes r
   JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
   LEFT JOIN accounts a ON a.id = r.author_id
   LEFT JOIN universes u ON u.slug = v.universe
-  WHERE r.visibility = 'public' AND (a.id IS NULL OR a.banned_at IS NULL)`;
+  WHERE r.visibility = 'public' AND r.removed_at IS NULL AND (a.id IS NULL OR a.banned_at IS NULL)`;
 
 export async function getRecipe(db, id) {
   const { rows } = await db.query(

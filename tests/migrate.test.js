@@ -29,6 +29,24 @@ describe('migrate', () => {
     assert.equal(rowCount, 1);
   });
 
+  it('creates the contribution tables and ties published_at to the published status', async () => {
+    const { pool } = await freshDatabase();
+    await migrate(pool);
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name IN ('moderation_decisions', 'reports', 'ratings')"
+    );
+    assert.equal(rows[0].n, 3);
+    await pool.query('INSERT INTO recipes DEFAULT VALUES');
+    await assert.rejects(
+      pool.query(
+        `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, ingredients, steps, provenance,
+           search, submitted_at, published_at, status)
+         SELECT id, 1, 't', 1, 1, 'vegan', '[{}]', '[{}]', 'p', ''::tsvector, now(), now(), 'pending' FROM recipes`
+      ),
+      { code: '23514' }
+    );
+  });
+
   it('is idempotent', async () => {
     const { pool } = await freshDatabase();
     await migrate(pool);
