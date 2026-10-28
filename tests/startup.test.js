@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 import { createTestDatabase } from './helpers/db.js';
+import { LATEST_SCHEMA_VERSION } from '../src/db.js';
 
 const SERVER = fileURLToPath(new URL('../src/server.js', import.meta.url));
 const TIMEOUT = 20000;
@@ -114,7 +115,7 @@ test('configuration valide : /ready répond 200', { timeout: TIMEOUT }, async ()
           if (status !== 200) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         assert.equal(status, 200, run.stderr);
-        assert.match(run.stdout, /migrations : 0 → 2/);
+        assert.match(run.stdout, new RegExp(`migrations : 0 → ${LATEST_SCHEMA_VERSION}`));
       } finally {
         run.child.kill();
         await run.exited;

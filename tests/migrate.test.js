@@ -100,6 +100,27 @@ describe('migrate', () => {
     await assert.rejects(insert('bob@x.fr'), { code: '23505' });
   });
 
+  it('creates the catalogue schema with accent-insensitive French search', async () => {
+    const { pool } = await freshDatabase();
+    await migrate(pool);
+    const tables = ['universes', 'recipes', 'recipe_versions'];
+    const { rows } = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1)",
+      [tables]
+    );
+    assert.deepEqual(rows.map((r) => r.table_name).sort(), [...tables].sort());
+    const { rows: [{ match }] } = await pool.query(
+      "SELECT to_tsvector('fdl_fr', 'Pâtes aux poireaux') @@ websearch_to_tsquery('fdl_fr', 'pates poireau') AS match"
+    );
+    assert.equal(match, true);
+    const { rows: [{ id }] } = await pool.query('INSERT INTO recipes DEFAULT VALUES RETURNING id');
+    await assert.rejects(pool.query(
+      `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, ingredients, steps, provenance, search, submitted_at, published_at)
+       VALUES ($1, 1, 'T', 0, 2, 'vegan', '[{}]', '[{}]', 'p', ''::tsvector, now(), now())`,
+      [id]
+    ), { code: '23514' });
+  });
+
   it('logs pool errors by code only instead of crashing', async () => {
     const { database } = await freshDatabase();
     const lines = [];
