@@ -1,5 +1,6 @@
 // ponytail: compteur en mémoire, remis à zéro au redémarrage ; passer en base si plusieurs processus.
-export function createLimiter({ max = 10, windowMs = 15 * 60 * 1000, maxKeys = 50000 } = {}) {
+// onTrip(fields) runs once per key and window, on the first refused hit (so a flood logs one line).
+export function createLimiter({ max = 10, windowMs = 15 * 60 * 1000, maxKeys = 50000, onTrip = () => {} } = {}) {
   const entries = new Map();
   return {
     get size() {
@@ -7,7 +8,7 @@ export function createLimiter({ max = 10, windowMs = 15 * 60 * 1000, maxKeys = 5
     },
     // Counts one attempt; true once more than `max` were counted in the current window.
     // The map never exceeds maxKeys.
-    hit(key) {
+    hit(key, fields = {}) {
       const now = Date.now();
       let entry = entries.get(key);
       if (!entry || entry.until <= now) {
@@ -17,6 +18,7 @@ export function createLimiter({ max = 10, windowMs = 15 * 60 * 1000, maxKeys = 5
         entries.set(key, entry);
       }
       entry.count += 1;
+      if (entry.count === max + 1) onTrip(fields);
       return entry.count > max;
     },
     reset(key) {

@@ -51,9 +51,9 @@ ${body}
 `));
 }
 
-// Errors carrying `status` are turned into JSON error responses by createApp.
+// Errors flagged `expose` are turned into JSON error responses (with their message) by createApp.
 function httpError(status, code, message) {
-  return Object.assign(new Error(message), { status, code });
+  return Object.assign(new Error(message), { status, code, expose: true });
 }
 
 export async function readBody(request) {

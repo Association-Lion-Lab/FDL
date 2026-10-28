@@ -123,7 +123,7 @@ export const promoteSession = (pool, session, request, securityLog) =>
   startSession(pool, request, securityLog, { accountId: session.accountId, role: session.role, mfaOk: true, old: session });
 
 export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
-  const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
+  const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`, { scope: name, ip: clientIp(request) });
   const hasPasskey = async (accountId) =>
     (await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId])).rowCount > 0;
 
@@ -178,18 +178,13 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
       const body = await readBody(request);
       const email = field(body, 'email').trim();
       const password = field(body, 'password');
-      const ipKey = `connexion:${clientIp(request)}`;
       // Every attempt is counted up front, so a correct password cannot slip past a tripped limit.
       // IP first and short-circuit: a tripped IP adds no email key to the limiter.
       const ip = clientIp(request);
-      const blocked = () => {
-        securityLog('rate_limited', { scope: 'connexion', ip });
-        return tooMany(response);
-      };
-      if (limiter.hit(ipKey)) return blocked();
+      if (limiter.hit(`connexion:${ip}`, { scope: 'connexion', ip })) return tooMany(response);
       if (email.length > 254) return loginPage(response, '', BAD_LOGIN);
       const emailKey = `connexion-email:${email.toLowerCase()}`;
-      if (limiter.hit(emailKey)) return blocked();
+      if (limiter.hit(emailKey, { scope: 'connexion', ip })) return tooMany(response);
 
       const { rows: [account] } = await pool.query(
         'SELECT id, role, password_hash, banned_at FROM accounts WHERE lower(email) = lower($1)',
@@ -220,10 +215,7 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
       if (session.mfaOk) return redirect(response, '/');
       const key = `verification:${session.accountId}`;
       const who = { scope: 'verification', accountId: session.accountId, ip: clientIp(request) };
-      if (limiter.hit(key)) {
-        securityLog('rate_limited', who);
-        return tooMany(response);
-      }
+      if (limiter.hit(key, who)) return tooMany(response);
       const code = field(await readBody(request), 'code');
       const ok = /^\d{6}$/.test(code.replace(/\s/g, ''))
         ? await verifyTotp(pool, config.secretKey, session.accountId, code)

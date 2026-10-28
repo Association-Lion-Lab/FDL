@@ -13,15 +13,17 @@ CREATE UNIQUE INDEX accounts_email_lower_key ON accounts (lower(email));
 -- created_by has no foreign key so the log of who issued a link survives account deletion.
 CREATE TABLE access_links (
   token_hash bytea PRIMARY KEY,
-  kind text CHECK (kind IN ('invitation', 'reset')),
-  role text,
+  kind text NOT NULL CHECK (kind IN ('invitation', 'reset')),
+  -- Only an invitation carries a role (NULL means member); a reset link has none.
+  role text CHECK (role IN ('member', 'adherent', 'moderator', 'admin')),
   account_id bigint REFERENCES accounts ON DELETE CASCADE,
   note text,
   created_by bigint,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
   used_at timestamptz,
-  revoked_at timestamptz
+  revoked_at timestamptz,
+  CHECK (kind = 'invitation' OR role IS NULL)
 );
 
 CREATE TABLE sessions (

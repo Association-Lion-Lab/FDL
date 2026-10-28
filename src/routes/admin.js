@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { createLink } from '../accounts.js';
+import { createLink, hashToken } from '../accounts.js';
 import { verifyTotp } from '../mfa.js';
 import { elevateSession, requireElevated } from '../sessions.js';
 import { html, raw, readBody, redirect, sendPage } from '../web.js';
@@ -11,13 +11,13 @@ const ROLES = ['member', 'adherent', 'moderator', 'admin'];
 const STATES = { pending: 'en attente', used: 'utilisée', expired: 'expirée', revoked: 'révoquée' };
 const when = (date) => (date ? date.toISOString().slice(0, 16).replace('T', ' ') : '');
 
-// Only paths under /admin, resolved so dot segments (also %2e) cannot climb out:
-// anything else (absolute URL, //host, /admin@host, /admin/../x) falls back to /admin.
+// Only paths under /admin (or exactly /compte/securite), resolved so dot segments (also %2e) cannot
+// climb out: anything else (absolute URL, //host, /admin@host, /admin/../x) falls back to /admin.
 function safeReturn(value) {
   const origin = 'http://x';
   try {
     const url = new URL(value, origin);
-    const inside = url.pathname === '/admin' || url.pathname.startsWith('/admin/');
+    const inside = url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname === '/compte/securite';
     return url.origin === origin && inside && !/[\\]/.test(value) ? url.pathname + url.search : '/admin';
   } catch {
     return '/admin';
@@ -162,16 +162,29 @@ ${rows.map((r) => html`<tr><td>${r.note}</td><td>${r.role ?? 'member'}</td><td>$
       if (!ROLES.includes(role)) return refuse(response, 400, 'Rôle inconnu.', '/admin/invitations');
       if ((role === 'moderator' || role === 'admin') && needsElevation(request, response, '/admin/invitations')) return;
       const note = field(body, 'note').trim().slice(0, 200) || null;
-      const token = await createLink(pool, { kind: 'invitation', role, note, createdBy: request.session.accountId });
+      const token = await transact(async (client) => {
+        const created = await createLink(client, { kind: 'invitation', role, note, createdBy: request.session.accountId });
+        // Logged by the hash prefix (the id the list shows), never by the token.
+        if (role === 'moderator' || role === 'admin') {
+          await record(client, request, 'invitation_created', hashToken(created).toString('hex').slice(0, 16), { role });
+        }
+        return created;
+      });
       showLink(response, 'Invitation créée', '/inscription', token);
     }),
 
     'POST /admin/invitations/revoquer': staffOnly(async (request, response) => {
       const id = field(await readBody(request), 'id');
       if (/^[0-9a-f]{64}$/.test(id)) {
-        await pool.query(
-          `UPDATE access_links SET revoked_at = now()
-           WHERE token_hash = $1 AND kind = 'invitation' AND used_at IS NULL AND revoked_at IS NULL`, [Buffer.from(id, 'hex')]);
+        await transact(async (client) => {
+          const { rows: [link] } = await client.query(
+            `UPDATE access_links SET revoked_at = now()
+             WHERE token_hash = $1 AND kind = 'invitation' AND used_at IS NULL AND revoked_at IS NULL RETURNING role`,
+            [Buffer.from(id, 'hex')]);
+          if (link?.role === 'moderator' || link?.role === 'admin') {
+            await record(client, request, 'invitation_revoked', id.slice(0, 16), { role: link.role });
+          }
+        });
       }
       redirect(response, '/admin/invitations');
     }),
@@ -251,10 +264,7 @@ ${rows.map((r) => html`<tr><td>${when(r.at)}</td><td>${r.actor}</td><td>${r.acti
       const { accountId, tokenHash } = request.session;
       const key = `elevation:${accountId}`;
       const who = { scope: 'elevation', accountId, ip: clientIp(request) };
-      if (limiter.hit(key)) {
-        securityLog('rate_limited', who);
-        return tooMany(response);
-      }
+      if (limiter.hit(key, who)) return tooMany(response);
       const body = await readBody(request);
       const retour = safeReturn(field(body, 'retour'));
       // No `activate`: a pending TOTP secret never counts as a second factor.

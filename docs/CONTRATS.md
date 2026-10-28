@@ -69,6 +69,7 @@ Ces erreurs JSON valent pour toute route (forme ci-dessus) :
 | 400 | `bad_request` | type de contenu autre que formulaire ou JSON, ou JSON invalide |
 | 400 | `passkey_failed` | étape de clé d'accès refusée (session, défi, signature ou nom invalide) |
 | 403 | `bad_origin` | `POST` dont l'en-tête `Origin` est absent ou différent de `FDL_ORIGIN` |
+| 403 | `elevation_required` | ajout d'une clé d'accès (`/cles/inscription/*`) par un `admin` qui a déjà une clé, sans confirmation récente |
 | 413 | `payload_too_large` | corps de plus de 16 Kio |
 | 429 | `too_many` | trop d'essais sur les routes JSON de clé d'accès (10 par 15 minutes) |
 
@@ -105,7 +106,9 @@ Réservées au rôle `admin` (les autres reçoivent `403` « Accès refusé ») 
 | `GET /admin/journal` | cent dernières actions d'administration |
 | `GET`/`POST /admin/confirmation` | confirmation par code à 6 chiffres ou clé d'accès |
 
-Inviter un `moderator` ou un `admin`, changer un rôle, bannir, débannir et réinitialiser exigent une confirmation de moins de 5 minutes ; sinon la personne est renvoyée vers `/admin/confirmation`. Il reste toujours au moins un administrateur actif : le dernier ne peut être ni rétrogradé ni banni. Le rôle `moderator` n'a pas encore d'écran.
+Inviter un `moderator` ou un `admin`, changer un rôle, bannir, débannir et réinitialiser exigent une confirmation de moins de 5 minutes ; sinon la personne est renvoyée vers `/admin/confirmation`. Pour un `admin` qui a déjà une clé d'accès, il en va de même pour ajouter ou supprimer une clé, activer le code à 6 chiffres et régénérer les codes de récupération : les pages renvoient vers `/admin/confirmation?retour=/compte/securite`, les routes JSON répondent `403 elevation_required`. La première clé d'un compte reste ajoutable sans confirmation.
+
+Le journal de sécurité (`logs/securite.log`) et `/admin/journal` consignent aussi la création et la révocation d'une invitation `moderator` ou `admin` (`invitation_created`, `invitation_revoked`), avec le rôle et les 16 premiers caractères de l'empreinte du lien, jamais le lien. `rate_limited` n'est écrit qu'une fois par clé et par fenêtre de 15 minutes, au premier refus. Il reste toujours au moins un administrateur actif : le dernier ne peut être ni rétrogradé ni banni. Le rôle `moderator` n'a pas encore d'écran.
 
 Une réinitialisation (`/reinitialisation`) change le mot de passe et supprime les sessions, le code à 6 chiffres, les clés d'accès et les codes de récupération du compte.
 

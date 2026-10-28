@@ -6,7 +6,7 @@ import { sendError, sendJson } from './http.js';
 import { createRecoveryCodes, hasSecondFactor } from './mfa.js';
 import { createLimiter } from './ratelimit.js';
 import { clientIp, promoteSession } from './routes/auth.js';
-import { elevateSession } from './sessions.js';
+import { elevateSession, factorChangeNeedsElevation } from './sessions.js';
 import { readBody } from './web.js';
 
 const browserBundle = readFileSync(new URL('../node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js', import.meta.url));
@@ -20,6 +20,9 @@ const sendScript = (body) => (request, response) => {
 
 export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limiter = createLimiter(), securityLog = () => {} } = {}) {
   const failed = (response) => sendError(response, 400, 'passkey_failed', FAILED);
+  // fdl-passkeys.js answers this by opening /admin/confirmation.
+  const elevationRequired = (response) =>
+    sendError(response, 403, 'elevation_required', "Confirmez votre identité avant d'ajouter une clé d'accès.");
 
   // Reads and clears the pending challenge in one statement, so it can be used once.
   async function takeChallenge(session) {
@@ -91,10 +94,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
     // Sign-in shares its key with the TOTP step: switching method does not reset the count.
     const key = `${full ? 'elevation' : 'verification'}:${session.accountId}`;
     const who = { scope: full ? 'elevation' : 'verification', accountId: session.accountId, ip: clientIp(request) };
-    if (limiter.hit(key)) {
-      securityLog('rate_limited', who);
-      return sendError(response, 429, 'too_many', 'Trop de tentatives. Réessayez dans 15 minutes.');
-    }
+    if (limiter.hit(key, who)) return sendError(response, 429, 'too_many', 'Trop de tentatives. Réessayez dans 15 minutes.');
     if (!(await assertKey(request))) {
       securityLog('mfa_failed', who);
       return failed(response);
@@ -108,6 +108,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
     'GET /static/fdl-passkeys.js': sendScript(clientScript),
 
     'POST /cles/inscription/options': async (request, response) => {
+      if (await factorChangeNeedsElevation(pool, request)) return elevationRequired(response);
       const { accountId } = request.session;
       const { rows: [account] } = await pool.query('SELECT email FROM accounts WHERE id = $1', [accountId]);
       const options = await lib.generateRegistrationOptions({
@@ -123,6 +124,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
     },
 
     'POST /cles/inscription/verification': async (request, response) => {
+      if (await factorChangeNeedsElevation(pool, request)) return elevationRequired(response);
       const { accountId } = request.session;
       const expectedChallenge = await takeChallenge(request.session);
       const body = await readBody(request);

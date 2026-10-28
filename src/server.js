@@ -15,7 +15,7 @@ import { parseCookies, redirect } from './web.js';
 
 const css = readFileSync(new URL('./static/fdl.css', import.meta.url));
 
-// Exact paths reachable without a session. Later tasks append their routes here.
+// Exact paths reachable without a session.
 export const PUBLIC_PATHS = new Set([
   '/health',
   '/ready',
@@ -66,8 +66,8 @@ export function buildBefore(pool, config) {
 }
 
 export function buildRoutes(pool, log = console.error, config, passkeyLib) {
-  const limiter = createLimiter();
   const securityLog = createSecurityLog(config?.dataDir);
+  const limiter = createLimiter({ onTrip: (fields) => securityLog('rate_limited', fields) });
   return {
     ...authRoutes(pool, config, { limiter, securityLog }),
     ...securityRoutes(pool, config, { limiter }),

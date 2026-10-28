@@ -44,6 +44,13 @@ describe('createApp', () => {
     });
   }
 
+  it('does not expose the message of a foreign error that carries a status', async () => {
+    const { base } = await start({ 'GET /boom': () => { throw Object.assign(new Error('secret: hunter2'), { status: 400 }); } });
+    const response = await fetch(`${base}/boom`);
+    assert.equal(response.status, 500);
+    assert.ok(!(await response.text()).includes('hunter2'));
+  });
+
   it('ignores the query string when matching a route', async () => {
     const { base } = await start({
       'GET /ping': (request, response) => { response.end('pong'); },

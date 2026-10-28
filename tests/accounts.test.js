@@ -143,6 +143,16 @@ describe('redeemReset', () => {
     assert.deepEqual(await redeemReset(pool, { token, password: 'a brand new password' }), { error: 'link_invalid' });
   });
 
+  it('constrains the kind and role of a link', async () => {
+    const insert = (kind, role) => pool.query(
+      "INSERT INTO access_links (token_hash, kind, role, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')",
+      [hashToken(`constraint-${kind}-${role}`), kind, role]);
+    await assert.rejects(insert('invitation', 'boss'), { code: '23514' });
+    await assert.rejects(insert('reset', 'admin'), { code: '23514' });
+    await assert.rejects(insert(null, null), { code: '23502' });
+    await insert('invitation', null);
+  });
+
   it('refuses a reset link without account and does not create one', async () => {
     await assert.rejects(createLink(pool, { kind: 'reset' }));
     const token = 'orphan-reset-token';

@@ -18,6 +18,7 @@ import { createTestDatabase } from './helpers/db.js';
 const PASSWORD = 'un mot de passe solide';
 const secretKey = Buffer.alloc(32, 7);
 const lib = {
+  generateRegistrationOptions: async () => ({ challenge: 'r' }),
   generateAuthenticationOptions: async () => ({ challenge: 'c' }),
   verifyAuthenticationResponse: async () => ({ verified: true, authenticationInfo: { newCounter: 1 } }),
 };
@@ -120,10 +121,12 @@ describe('security log', () => {
     for (const secret of [PASSWORD, 'mauvais mot de passe', cookie.split('=')[1]]) assert.ok(!text.includes(secret));
   });
 
-  it('records rate limiting of sign-in', async () => {
+  it('records rate limiting of sign-in once per window, however many refusals follow', async () => {
     await account();
-    for (let i = 0; i < 11; i++) await send('/connexion', { method: 'POST', form: { email: 'staff@example.org', password: 'x' } });
-    assert.ok((await logLines()).some((l) => l.event === 'rate_limited' && l.scope === 'connexion'));
+    for (let i = 0; i < 15; i++) await send('/connexion', { method: 'POST', form: { email: 'staff@example.org', password: 'x' } });
+    const limited = (await logLines()).filter((l) => l.event === 'rate_limited');
+    assert.equal(limited.length, 1);
+    assert.equal(limited[0].scope, 'connexion');
   });
 });
 
@@ -213,7 +216,7 @@ describe('re-authentication', () => {
     assert.equal(evil.headers.get('location'), '/admin');
     const until = new Date(await elevatedUntil(id)).getTime() - Date.now();
     assert.ok(until > 4 * 60000 && until <= 5 * 60000);
-    for (const bad of ['//evil.example', '/admin@evil.example', '/admin\\evil', '/admin/../compte', '/admin/%2e%2e/compte', '/administrateur']) {
+    for (const bad of ['//evil.example', '/admin@evil.example', '/admin\\evil', '/admin/../compte', '/admin/%2e%2e/compte', '/administrateur', '/compte/securitex', '/compte/securite/totp']) {
       await pool.query('UPDATE totp_secrets SET last_step = NULL');
       const response = await send('/admin/confirmation', { method: 'POST', cookie, form: { retour: bad, code: codeFor(secret) } });
       assert.equal(response.headers.get('location'), '/admin', bad);
@@ -222,6 +225,9 @@ describe('re-authentication', () => {
     await pool.query('UPDATE sessions SET elevated_until = NULL');
     const good = await send('/admin/confirmation', { method: 'POST', cookie, form: { retour: '/admin/x?a=1', code: codeFor(secret, Date.now() + 30000) } });
     assert.equal(good.headers.get('location'), '/admin/x?a=1');
+    await pool.query('UPDATE totp_secrets SET last_step = NULL');
+    const security = await send('/admin/confirmation', { method: 'POST', cookie, form: { retour: '/compte/securite', code: codeFor(secret, Date.now() + 30000) } });
+    assert.equal(security.headers.get('location'), '/compte/securite');
   });
 
   it('refuses a wrong code, logs it, and rate-limits', async () => {
@@ -259,5 +265,42 @@ describe('re-authentication', () => {
     await pool.query('DELETE FROM sessions');
     const half = `fdl_session=${await openSession(pool, id, { mfaOk: false })}`;
     assert.equal((await send('/cles/confirmation/verification', { method: 'POST', json: { response: { id: 'k1' } }, cookie: half })).status, 303);
+  });
+});
+
+describe('factor changes by an admin who has a passkey', () => {
+  const back = elevationUrl({ url: '/compte/securite' });
+  const keys = async () => (await pool.query('SELECT id FROM passkeys ORDER BY id')).rows.map((r) => r.id);
+
+  it('need a recent confirmation', async () => {
+    const id = await account();
+    await addKey(id);
+    await pool.query("INSERT INTO passkeys (id, account_id, public_key, counter, name) VALUES ('k2', $1, '\\x01', 0, 'k')", [id]);
+    const cookie = await fullSession(id);
+    for (const path of ['/cles/inscription/options', '/cles/inscription/verification']) {
+      const response = await send(path, { method: 'POST', json: {}, cookie });
+      assert.equal(response.status, 403, path);
+      assert.equal((await response.json()).error.code, 'elevation_required');
+    }
+    for (const [path, form] of [['/compte/securite/totp', {}], ['/compte/securite/totp/confirmation', { code: '000000' }],
+      ['/compte/securite/cles/suppression', { id: 'k2' }], ['/compte/securite/recuperation', {}]]) {
+      const response = await send(path, { method: 'POST', form, cookie });
+      assert.equal(response.status, 303, path);
+      assert.equal(response.headers.get('location'), back, path);
+    }
+    assert.deepEqual(await keys(), ['k1', 'k2']);
+    assert.equal((await pool.query('SELECT 1 FROM totp_secrets')).rowCount, 0);
+
+    await pool.query("UPDATE sessions SET elevated_until = now() + interval '5 minutes'");
+    assert.equal((await send('/cles/inscription/options', { method: 'POST', json: {}, cookie })).status, 200);
+    assert.equal((await send('/compte/securite/totp', { method: 'POST', form: {}, cookie })).status, 200);
+    assert.equal((await send('/compte/securite/cles/suppression', { method: 'POST', form: { id: 'k2' }, cookie })).status, 303);
+    assert.deepEqual(await keys(), ['k1']);
+  });
+
+  it('do not block the first key of a staff account', async () => {
+    const id = await account();
+    const response = await send('/cles/inscription/options', { method: 'POST', json: {}, cookie: await fullSession(id) });
+    assert.equal(response.status, 200);
   });
 });

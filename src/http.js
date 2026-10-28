@@ -29,24 +29,29 @@ export function createApp({ routes, log = console.error, before }) {
 
       await handler(request, response);
     } catch (error) {
-      // Errors with a `status` (see web.js readBody) are expected client errors.
-      if (error?.status && !response.headersSent) {
-        sendError(response, error.status, error.code, error.message);
-        return;
-      }
-      const requestId = randomUUID();
-      log(`${requestId} ${error?.stack ?? error}`);
-      if (response.headersSent) {
+      try {
+        // Only our own client errors (web.js httpError) show their message; a bare `.status` does not.
+        if (error?.expose === true && !response.headersSent) {
+          sendError(response, error.status, error.code, error.message);
+          return;
+        }
+        const requestId = randomUUID();
+        log(`${requestId} ${error?.stack ?? error}`);
+        if (response.headersSent) {
+          response.destroy();
+          return;
+        }
+        sendJson(response, 500, {
+          error: {
+            code: 'internal_error',
+            message: 'Erreur interne. Réessayez plus tard.',
+            requestId,
+          },
+        });
+      } catch {
+        // Writing the error answer failed too: drop the connection rather than crash the process.
         response.destroy();
-        return;
       }
-      sendJson(response, 500, {
-        error: {
-          code: 'internal_error',
-          message: 'Erreur interne. Réessayez plus tard.',
-          requestId,
-        },
-      });
     }
   });
 }

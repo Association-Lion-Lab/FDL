@@ -166,6 +166,26 @@ describe('invitations', () => {
     assert.ok((await (await get('/admin/invitations', cookie)).text()).includes('révoquée'));
   });
 
+  it('logs staff invitations, created and revoked, without the token', async () => {
+    const cookie = await login(await account('admin'), { elevated: true });
+    await post('/admin/invitations', { role: 'member' }, cookie);
+    const page = await (await post('/admin/invitations', { role: 'moderator' }, cookie)).text();
+    const code = /\/inscription\?code=([\w-]+)/.exec(page)[1];
+    const [created] = await adminLog();
+    assert.equal((await adminLog()).length, 1);
+    assert.equal(created.action, 'invitation_created');
+    assert.deepEqual(created.detail, { role: 'moderator' });
+    const list = await (await get('/admin/invitations', cookie)).text();
+    const id = [...list.matchAll(/name="id" value="([0-9a-f]{64})"/g)].map((m) => m[1]).find((h) => h.startsWith(created.target));
+    assert.ok(id);
+    await post('/admin/invitations/revoquer', { id }, cookie);
+    assert.deepEqual((await adminLog()).map((l) => l.action), ['invitation_created', 'invitation_revoked']);
+    const lines = (await secLog()).filter((l) => l.event.startsWith('invitation_'));
+    assert.deepEqual(lines.map((l) => [l.event, l.role, l.targetId]),
+      [['invitation_created', 'moderator', created.target], ['invitation_revoked', 'moderator', created.target]]);
+    assert.ok(!(await readFile(join(dataDir, 'logs', 'securite.log'), 'utf8')).includes(code));
+  });
+
   it('needs a recent confirmation for a staff invitation only', async () => {
     const cookie = await login(await account('admin'));
     assert.equal((await post('/admin/invitations', { role: 'admin' }, cookie)).status, 303);

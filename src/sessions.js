@@ -56,6 +56,14 @@ export const requireElevated = (request) => {
   return Boolean(until) && new Date(until) > new Date();
 };
 
+// An admin who already has a passkey re-authenticates before changing their factors: otherwise a
+// stolen session could enrol its own factor and elevate with it. The first key needs none.
+export async function factorChangeNeedsElevation(db, request) {
+  const { role, accountId } = request.session;
+  if (role !== 'admin' || requireElevated(request)) return false;
+  return (await db.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId])).rowCount > 0;
+}
+
 export const elevateSession = (db, tokenHash) =>
   db.query("UPDATE sessions SET elevated_until = now() + interval '5 minutes' WHERE token_hash = $1", [tokenHash]);
 

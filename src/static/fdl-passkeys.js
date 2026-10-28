@@ -12,6 +12,10 @@ async function send(path, body) {
     body: JSON.stringify(body ?? {}),
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 403 && data.error?.code === 'elevation_required') {
+    location.href = '/admin/confirmation?retour=%2Fcompte%2Fsecurite';
+    return new Promise(() => {}); // the page is leaving: stop the flow here
+  }
   if (!response.ok) throw new Error('server');
   return data;
 }

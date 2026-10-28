@@ -1,7 +1,9 @@
 import { checkPassword, hashPassword, verifyPassword } from '../accounts.js';
 import { createRecoveryCodes, startTotp, verifyTotp } from '../mfa.js';
+import { factorChangeNeedsElevation } from '../sessions.js';
 import { html, raw, readBody, redirect, sendPage } from '../web.js';
-import { field, tooMany } from './auth.js';
+import { elevationUrl } from './admin.js';
+import { clientIp, field, tooMany } from './auth.js';
 
 const group4 = (secret) => secret.match(/.{1,4}/g).join(' ');
 
@@ -50,12 +52,19 @@ ${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}
 <ul>${codes.map((c) => html`<li><code>${c}</code></li>`)}</ul>`);
 
   // Counts every attempt up front, as sign-in does.
-  const limited = (request, name) => limiter.hit(`${name}:${request.session.accountId}`);
+  const limited = (request, name) => limiter.hit(`${name}:${request.session.accountId}`,
+    { scope: name, accountId: request.session.accountId, ip: clientIp(request) });
+
+  // Factor changes of an admin who has a key go through /admin/confirmation first.
+  const elevated = (handler) => async (request, response) =>
+    (await factorChangeNeedsElevation(pool, request))
+      ? redirect(response, elevationUrl({ url: '/compte/securite' }))
+      : handler(request, response);
 
   return {
     'GET /compte/securite': (request, response) => overview(request, response),
 
-    'POST /compte/securite/totp': async (request, response) => {
+    'POST /compte/securite/totp': elevated(async (request, response) => {
       const id = request.session.accountId;
       const { rows: [account] } = await pool.query('SELECT email FROM accounts WHERE id = $1', [id]);
       let started;
@@ -74,9 +83,9 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
 <label>Code affiché par l'application <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required></label>
 <button type="submit">Confirmer</button>
 </form>`);
-    },
+    }),
 
-    'POST /compte/securite/totp/confirmation': async (request, response) => {
+    'POST /compte/securite/totp/confirmation': elevated(async (request, response) => {
       if (limited(request, 'activation')) return tooMany(response);
       const id = request.session.accountId;
       const code = field(await readBody(request), 'code');
@@ -87,9 +96,9 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
       const { rows: [{ n }] } = await pool.query('SELECT count(*)::int AS n FROM recovery_codes WHERE account_id = $1', [id]);
       if (n) return redirect(response, '/compte/securite');
       showCodes(response, await createRecoveryCodes(pool, id));
-    },
+    }),
 
-    'POST /compte/securite/cles/suppression': async (request, response) => {
+    'POST /compte/securite/cles/suppression': elevated(async (request, response) => {
       const { accountId, role } = request.session;
       const id = field(await readBody(request), 'id');
       // The account row lock serializes concurrent deletes, so staff keep their last key.
@@ -112,11 +121,11 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
         return overview(request, response, { error: "Votre rôle exige une seconde étape : gardez au moins une clé d'accès.", status: 400 });
       }
       redirect(response, '/compte/securite');
-    },
+    }),
 
-    'POST /compte/securite/recuperation': async (request, response) => {
+    'POST /compte/securite/recuperation': elevated(async (request, response) => {
       showCodes(response, await createRecoveryCodes(pool, request.session.accountId));
-    },
+    }),
 
     'POST /compte/securite/mot-de-passe': async (request, response) => {
       if (limited(request, 'mot-de-passe')) return tooMany(response);
