@@ -106,6 +106,25 @@ describe('request guards', () => {
     assert.equal((await bad.json()).error.code, 'bad_request');
   });
 
+  it('answers 400 on a NUL byte, which PostgreSQL text refuses', async () => {
+    const base = await start(null, { 'POST /connexion': echo });
+    const post = (contentType, body) => fetch(`${base}/connexion`, {
+      method: 'POST',
+      headers: { origin: 'http://localhost', 'content-type': contentType },
+      body,
+    });
+    for (const [type, body] of [
+      ['application/x-www-form-urlencoded', 'email=a%00b'],
+      ['application/x-www-form-urlencoded', 'a%00=1'],
+      ['application/json', '{"name":"a\\u0000b"}'],
+      ['application/json', '{"a\\u0000":1}'],
+    ]) {
+      const response = await post(type, body);
+      assert.equal(response.status, 400, body);
+      assert.equal((await response.json()).error.code, 'bad_request', body);
+    }
+  });
+
   it('redirects anonymous visitors to /connexion, even for unknown paths', async () => {
     const base = await start(null, { 'GET /prive': echo });
     for (const path of ['/prive', '/nimporte-quoi']) {

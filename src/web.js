@@ -71,7 +71,13 @@ export async function readBody(request) {
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString('utf8');
-  if (type === 'application/x-www-form-urlencoded') return new URLSearchParams(text);
+  // PostgreSQL text cannot hold NUL: refuse it here rather than fail with a 500 in a query.
+  const nul = () => httpError(400, 'bad_request', 'Requête invalide.');
+  if (type === 'application/x-www-form-urlencoded') {
+    const params = new URLSearchParams(text);
+    if ([...params].some(([key, value]) => key.includes('\0') || value.includes('\0'))) throw nul();
+    return params;
+  }
   if (text.trim() === '') return {};
   let data;
   try {
@@ -82,6 +88,8 @@ export async function readBody(request) {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     throw httpError(400, 'bad_request', 'Requête invalide.');
   }
+  // JSON.stringify writes any NUL, in a key or a value, back as \u0000.
+  if (JSON.stringify(data).includes('\\u0000')) throw nul();
   return data;
 }
 
