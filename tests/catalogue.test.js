@@ -187,7 +187,7 @@ describe('ratings', () => {
     await pool.query("UPDATE recipes SET visibility = 'private' WHERE id = $1", [id]);
     assert.equal((await rate({ id: String(id), etoiles: '5' })).status, 404);
     await pool.query("UPDATE recipes SET visibility = 'public' WHERE id = $1", [id]);
-    for (const bad of ['6', '0', '3.5', '1e0', ' 3', '-1', '', 'abc', '3 ']) {
+    for (const bad of ['6', '0', '3.5', '1e0', ' 3', '-1', '', 'abc', '3\0']) {
       assert.equal((await rate({ id: String(id), etoiles: bad })).status, 400, JSON.stringify(bad));
     }
     for (const bad of ['', 'x', '99999999999999999999', '0']) {
