@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs';
 
+import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes } from '../recipes.js';
 import { html, sendPage } from '../web.js';
 
 const printScript = readFileSync(new URL('../static/fdl-print.js', import.meta.url));
 
-const DIET_LABELS = { vegan: 'Végétalien', vegetarian: 'Végétarien', pescetarian: 'Pescétarien', omnivore: 'Omnivore' };
-const SEASON_LABELS = { spring: 'Printemps', summer: 'Été', autumn: 'Automne', winter: 'Hiver' };
+export const DIET_LABELS = { vegan: 'Végétalien', vegetarian: 'Végétarien', pescetarian: 'Pescétarien', omnivore: 'Omnivore' };
+export const SEASON_LABELS = { spring: 'Printemps', summer: 'Été', autumn: 'Automne', winter: 'Hiver' };
 const PREPARATION_LABELS = { raw: 'cru', cooked: 'cuit' };
-const STEP_LABELS = { prep: 'Préparation', cook: 'Cuisson', rest: 'Repos', serve: 'Service' };
+export const STEP_LABELS = { prep: 'Préparation', cook: 'Cuisson', rest: 'Repos', serve: 'Service' };
 const DURATIONS = ['15', '30', '60'];
 const FILTER_DIETS = ['vegan', 'vegetarian', 'pescetarian'];
 const MAX_ID = 9223372036854775807n;
@@ -20,11 +21,12 @@ const header = (q = '') => html`<header>
 <label>Rechercher une recette <input name="q" type="search" value="${q}"></label>
 <button type="submit">Rechercher</button>
 </form>
+<a href="/mes-recettes">Mes recettes</a>
 <a href="/compte/securite">Sécurité du compte</a>
 <form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>
 </header>`;
 
-const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q)}
+export const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q)}
 ${body}`);
 
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>
@@ -82,6 +84,12 @@ function ingredientLine({ name, amount, unit, preparation }) {
   return [amount.toLocaleString('fr-FR'), unit, name].filter(Boolean).join(' ') + (preparationLabel ? `, ${preparationLabel}` : '');
 }
 
+// Labels of getOwnRecipe/listMine states, shown to the author.
+export const STATE_LABELS = {
+  draft: 'Brouillon', private: 'Privée', pending: 'En attente de modération', published: 'Publiée',
+  published_pending: 'Publiée, nouvelle version en attente', rejected: 'Refusée', removed: 'Retirée',
+};
+
 export function catalogueRoutes(pool) {
   return {
     'GET /': async (request, response) => {
@@ -120,11 +128,22 @@ ${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suiva
     'GET /recette': async (request, response) => {
       const id = new URL(request.url, 'http://x').searchParams.get('id') ?? '';
       if (!/^\d{1,19}$/.test(id) || BigInt(id) > MAX_ID) return notFound(response);
-      const recipe = await getRecipe(pool, id);
-      if (!recipe) return notFound(response);
-      const published = recipe.publishedAt.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
+      // The author also sees a recipe that is not (or not only) public, with its state.
+      const own = await getOwnRecipe(pool, { recipeId: id, authorId: request.session.accountId });
+      let recipe;
+      let banner = '';
+      if (own && own.state !== 'published' && own.state !== 'removed') {
+        if (!own.latest) return notFound(response);
+        const { latest } = own;
+        recipe = { ...latest, universe: latest.universe && { label: latest.universe }, author: request.session.displayName, publishedAt: null };
+        banner = html`<p role="status">État : ${STATE_LABELS[own.state]}. <a href="/mes-recettes/edition?id=${own.id}">Modifier</a></p>`;
+      } else {
+        recipe = await getRecipe(pool, id);
+        if (!recipe) return notFound(response);
+      }
+      const published = recipe.publishedAt?.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
       show(response, 200, recipe.title, html`<article>
-<h1>${recipe.title}</h1>
+${banner}<h1>${recipe.title}</h1>
 <p>Par ${author(recipe.author)}</p>
 <ul class="facts">
 <li>${recipe.minutes} min</li>
@@ -139,7 +158,7 @@ ${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
 <ol>${recipe.steps.map((s) => html`<li><strong>${STEP_LABELS[s.kind]}${s.minutes ? ` (${s.minutes} min)` : ''}</strong> ${s.instruction}</li>`)}</ol>
 <p>Provenance : ${recipe.provenance}${recipe.sourceUrl ? html` (<a href="${recipe.sourceUrl}" rel="noopener noreferrer">source</a>)` : ''}</p>
 <p>Texte sous licence CC BY-SA 4.0 (<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.fr" rel="license">conditions</a>).</p>
-<p>Version ${recipe.version}, publiée le ${published}</p>
+<p>Version ${recipe.version}${published ? html`, publiée le ${published}` : ''}</p>
 <button type="button" id="print">Imprimer</button>
 </article>
 <script src="/static/fdl-print.js"></script>`);

@@ -1,5 +1,3 @@
-const MAX_BODY = 16 * 1024;
-
 class Raw {
   constructor(value) {
     this.value = value;
@@ -56,18 +54,18 @@ function httpError(status, code, message) {
   return Object.assign(new Error(message), { status, code, expose: true });
 }
 
-export async function readBody(request) {
+export async function readBody(request, { max = 16 * 1024 } = {}) {
   const type = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/x-www-form-urlencoded' && type !== 'application/json') {
     throw httpError(400, 'bad_request', 'Type de contenu non pris en charge.');
   }
   const declared = Number(request.headers['content-length']);
-  if (declared > MAX_BODY) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
+  if (declared > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
+    if (size > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString('utf8');

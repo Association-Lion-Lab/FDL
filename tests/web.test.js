@@ -106,6 +106,21 @@ describe('request guards', () => {
     assert.equal((await bad.json()).error.code, 'bad_request');
   });
 
+  it('accepts a larger body when the route raises max', async () => {
+    const big = async (request, response) => {
+      const body = await readBody(request, { max: 256 * 1024 });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ size: body.get('a').length }));
+    };
+    const base = await start(null, { 'POST /connexion': big });
+    const response = await fetch(`${base}/connexion`, {
+      method: 'POST',
+      headers: { origin: 'http://localhost', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'a=' + 'x'.repeat(100 * 1024),
+    });
+    assert.equal((await response.json()).size, 100 * 1024);
+  });
+
   it('answers 400 on a NUL byte, which PostgreSQL text refuses', async () => {
     const base = await start(null, { 'POST /connexion': echo });
     const post = (contentType, body) => fetch(`${base}/connexion`, {
