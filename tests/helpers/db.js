@@ -14,6 +14,9 @@ export async function createTestDatabase() {
     await admin.end();
   }
   const pool = createPool({ database });
+  // drop() ends the pool, then DROP ... FORCE can still reach a backend that is closing: the FATAL 57P01
+  // lands on a client the pool already forgot and would crash the test as an uncaught error.
+  pool.on('connect', (client) => client.on('error', () => {}));
   return {
     pool,
     database,
