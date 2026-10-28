@@ -4,7 +4,7 @@ Une base communautaire pour partager, découvrir et importer des recettes dans M
 
 ## État
 
-Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. Aucun compte, catalogue, stockage d’images ni envoi d’e-mail n’est encore disponible.
+Le projet démarre par un socle fermé et minimal. Il fournit actuellement un serveur HTTP avec PostgreSQL (migrations au démarrage), des contrôles `/health` et `/ready`, la sauvegarde et la restauration, et un déploiement Docker Compose avec HTTPS et mise à jour par script. L’accès est construit : invitations, comptes, sessions, seconde étape (code à 6 chiffres, clés d’accès, codes de récupération) et pages d’administration des comptes. Aucun catalogue, stockage d’images ni envoi d’e-mail n’est encore disponible : les liens d’invitation et de réinitialisation se transmettent à la main.
 
 FDL reste indépendant de Manger! et du futur service de scan PDF/photo. Manger! doit continuer à fonctionner sans FDL. Seules les contributions volontairement soumises à FDL y seront conservées.
 
@@ -33,16 +33,18 @@ Tout se règle par variables d’environnement.
 | `PGHOST`, `PGDATABASE`, `PGUSER` | Serveur, base et utilisateur PostgreSQL | obligatoires |
 | `PGPORT` | Port PostgreSQL | `5432` |
 | `PGPASSWORD` | Mot de passe PostgreSQL | selon le serveur |
+| `FDL_ORIGIN` | Adresse publique sans chemin, par exemple `https://fdl.example.org` | obligatoire |
+| `FDL_SECRET_KEY` | 64 caractères hexadécimaux (32 octets) ; chiffre les secrets du code à 6 chiffres | obligatoire |
 
-Le mot de passe n’est jamais affiché ni journalisé.
+Le mot de passe et la clé ne sont jamais affichés ni journalisés. Perdre `FDL_SECRET_KEY` rend illisibles les secrets du code à 6 chiffres (voir [docs/EXPLOITATION.md](docs/EXPLOITATION.md)).
 
 ## Sauvegarde
 
-`npm run backup -- <dossier de sortie>` crée un dossier `fdl-backup-<date>` contenant `database.dump` (`pg_dump` au format custom), `files/` (copie de `FDL_DATA_DIR`, sans `tmp/` ni `backups/`) et `manifest.json` (version du schéma, date, somme SHA-256 de chaque fichier). Le manifeste est écrit en dernier : sans lui, la sauvegarde est incomplète. La base sauvegardée est `PGDATABASE` ; la commande affiche le chemin créé, ou une ligne d’erreur et le code 1.
+`npm run backup -- <dossier de sortie>` crée un dossier `fdl-backup-<date>` contenant `database.dump` (`pg_dump` au format custom), `files/` (copie de `FDL_DATA_DIR`, sans `tmp/`, `backups/` ni `logs/`) et `manifest.json` (version du schéma, date, somme SHA-256 de chaque fichier). Le manifeste est écrit en dernier : sans lui, la sauvegarde est incomplète. La base sauvegardée est `PGDATABASE` ; la commande affiche le chemin créé, ou une ligne d’erreur et le code 1.
 
 ## Restauration
 
-`npm run restore -- <dossier de sauvegarde>` restaure une sauvegarde dans la base `PGDATABASE` et dans `FDL_DATA_DIR`. Avant toute modification, la commande vérifie dans l’ordre : le manifeste (`backup_invalid`), les sommes SHA-256 et l’absence de fichier manquant ou en trop (`backup_corrupted`), la version du schéma (`schema_incompatible`), puis que la base cible et le dossier de données sont vides, hors `tmp/` et `backups/` (`target_not_empty`). Elle ne remplace jamais de données existantes : restaurez vers une base vierge et un dossier vierge. La base est restaurée en une seule transaction (`pg_restore --single-transaction`) : en cas d’échec, elle reste intacte et les fichiers ne sont pas copiés. Si la copie des fichiers échoue après la restauration de la base, le message l’indique et la base reste restaurée. En cas d’erreur, une ligne en français est affichée et le code de sortie est 1.
+`npm run restore -- <dossier de sauvegarde>` restaure une sauvegarde dans la base `PGDATABASE` et dans `FDL_DATA_DIR`. Avant toute modification, la commande vérifie dans l’ordre : le manifeste (`backup_invalid`), les sommes SHA-256 et l’absence de fichier manquant ou en trop (`backup_corrupted`), la version du schéma (`schema_incompatible`), puis que la base cible et le dossier de données sont vides, hors `tmp/`, `backups/` et `logs/` (`target_not_empty`). Elle ne remplace jamais de données existantes : restaurez vers une base vierge et un dossier vierge. La base est restaurée en une seule transaction (`pg_restore --single-transaction`) : en cas d’échec, elle reste intacte et les fichiers ne sont pas copiés. Si la copie des fichiers échoue après la restauration de la base, le message l’indique et la base reste restaurée. En cas d’erreur, une ligne en français est affichée et le code de sortie est 1.
 
 ## Documentation
 

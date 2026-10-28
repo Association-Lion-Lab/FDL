@@ -1,6 +1,6 @@
 # Contrats initiaux
 
-Statut : contrat de départ pour la bêta. Seuls `GET /health` et `GET /ready` sont implémentés aujourd’hui ; les autres sections fixent les limites à respecter lors des prochaines tranches.
+Statut : contrat de départ pour la bêta. Sont implémentés aujourd’hui `GET /health`, `GET /ready` et les routes d’accès (section « Accès ») ; les autres sections fixent les limites à respecter lors des prochaines tranches.
 
 ## HTTP
 
@@ -59,6 +59,55 @@ Sinon (schéma absent ou différent, base injoignable, erreur de connexion), ré
   }
 }
 ```
+
+### Codes d'erreur communs
+
+Ces erreurs JSON valent pour toute route (forme ci-dessus) :
+
+| Statut | `code` | Cas |
+| --- | --- | --- |
+| 400 | `bad_request` | type de contenu autre que formulaire ou JSON, ou JSON invalide |
+| 400 | `passkey_failed` | étape de clé d'accès refusée (session, défi, signature ou nom invalide) |
+| 403 | `bad_origin` | `POST` dont l'en-tête `Origin` est absent ou différent de `FDL_ORIGIN` |
+| 413 | `payload_too_large` | corps de plus de 16 Kio |
+| 429 | `too_many` | trop d'essais sur les routes JSON de clé d'accès (10 par 15 minutes) |
+
+Les pages HTML répondent à la même limite d'essais par une page « Trop de tentatives » (statut 429).
+
+## Accès
+
+Ces routes servent des pages HTML en français, sauf mention JSON. Le seul cookie est `fdl_session` (`HttpOnly; Secure; SameSite=Lax; Path=/`). Sans session complète, toute route hors liste publique renvoie vers `/connexion` (ou `/connexion/verification` si la seconde étape manque). Un `moderator` ou `admin` sans clé d'accès n'atteint que `/compte/securite` et `/cles/*` : tout le reste renvoie vers `/compte/securite?obligatoire=1`.
+
+Publiques : `GET`/`POST /connexion`, `GET`/`POST /connexion/verification`, `GET`/`POST /inscription?code=…`, `GET`/`POST /reinitialisation?code=…`, `POST /deconnexion`, `POST /cles/connexion/options` et `/cles/connexion/verification` (JSON, session à moitié ouverte), et `/static/*`. Un lien expiré, utilisé ou révoqué répond `410` « Lien expiré ». Au-delà de 10 essais par quart d'heure (par adresse IP, et par e-mail pour `/connexion`), `429`.
+
+Réservées à une session complète :
+
+| Route | Rôle |
+| --- | --- |
+| `GET /` | accueil provisoire |
+| `GET /compte/securite` | état du code à 6 chiffres, des clés et des codes de récupération |
+| `POST /compte/securite/totp`, `POST /compte/securite/totp/confirmation` | activer le code à 6 chiffres (secret et QR code, puis confirmation) |
+| `POST /compte/securite/recuperation` | nouveaux codes de récupération, affichés une seule fois |
+| `POST /compte/securite/cles/suppression` | supprimer une clé ; refusé pour la dernière clé d'un `moderator` ou `admin` |
+| `POST /compte/securite/mot-de-passe` | changer le mot de passe ; les autres sessions du compte sont fermées |
+| `POST /cles/inscription/options`, `POST /cles/inscription/verification` | ajouter une clé d'accès (JSON) |
+| `POST /cles/confirmation/options`, `POST /cles/confirmation/verification` | confirmer son identité par clé d'accès (JSON) |
+
+Réservées au rôle `admin` (les autres reçoivent `403` « Accès refusé ») :
+
+| Route | Rôle |
+| --- | --- |
+| `GET /admin` | menu |
+| `GET`/`POST /admin/invitations`, `POST /admin/invitations/revoquer` | créer (lien montré une seule fois) ou révoquer une invitation |
+| `GET /admin/comptes` | liste des comptes |
+| `POST /admin/comptes/role`, `/bannir`, `/debannir` | changer le rôle, bannir (ferme ses sessions), débannir |
+| `POST /admin/comptes/reinitialiser` | lien de réinitialisation, montré une seule fois |
+| `GET /admin/journal` | cent dernières actions d'administration |
+| `GET`/`POST /admin/confirmation` | confirmation par code à 6 chiffres ou clé d'accès |
+
+Inviter un `moderator` ou un `admin`, changer un rôle, bannir, débannir et réinitialiser exigent une confirmation de moins de 5 minutes ; sinon la personne est renvoyée vers `/admin/confirmation`. Il reste toujours au moins un administrateur actif : le dernier ne peut être ni rétrogradé ni banni. Le rôle `moderator` n'a pas encore d'écran.
+
+Une réinitialisation (`/reinitialisation`) change le mot de passe et supprime les sessions, le code à 6 chiffres, les clés d'accès et les codes de récupération du compte.
 
 ## Recette communautaire
 

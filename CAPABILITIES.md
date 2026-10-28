@@ -10,6 +10,8 @@ Statut : approuvée le 15 octobre 2026 ; ordre mis à jour le 27 octobre 2026 se
 | `contributions` | Brouillons, droits, modération, photos et signalements | `catalogue` |
 | `integration-manger` | Consultation distante et import d’une copie privée | `catalogue` |
 
+État : `socle` et `acces` sont construits (comptes, sessions, rôles, seconde étape, clés d’accès, administration des comptes, journal de sécurité). Les autres capacités restent à faire.
+
 Ordre de réalisation (cahier des charges, section 11) : `socle` → `acces` (dont 2FA admin) → `catalogue` + site public → `contributions` + modération + administration + notes → commentaires → `integration-manger`.
 
 Le cahier des charges ajoute l’interface web publique, les recettes privées, l’administration et les commentaires ; ils seront rattachés à ces capacités au moment de leur cadrage détaillé.
