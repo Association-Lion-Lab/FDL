@@ -12,19 +12,25 @@ const notFound = () => fail('not_found', 'Recette introuvable.');
 const fold = (value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 export async function saveDraft(db, { recipeId = null, authorId, draft }) {
-  if (recipeId === null) {
-    const { rows } = await db.query(
-      "INSERT INTO recipes (author_id, visibility, draft) VALUES ($1, 'draft', $2) RETURNING id",
-      [authorId, JSON.stringify(draft)]
+  try {
+    if (recipeId === null) {
+      const { rows } = await db.query(
+        "INSERT INTO recipes (author_id, visibility, draft) VALUES ($1, 'draft', $2) RETURNING id",
+        [authorId, JSON.stringify(draft)]
+      );
+      return { id: Number(rows[0].id) };
+    }
+    const { rowCount } = await db.query(
+      'UPDATE recipes SET draft = $3 WHERE id = $1 AND author_id = $2 AND removed_at IS NULL',
+      [recipeId, authorId, JSON.stringify(draft)]
     );
-    return { id: Number(rows[0].id) };
+    if (!rowCount) throw notFound();
+    return { id: Number(recipeId) };
+  } catch (error) {
+    // The CHECK on the stored (jsonb) size can fail even when the request body was under its cap.
+    if (error.code === '23514') throw fail('draft_too_large', 'Brouillon trop volumineux.');
+    throw error;
   }
-  const { rowCount } = await db.query(
-    'UPDATE recipes SET draft = $3 WHERE id = $1 AND author_id = $2 AND removed_at IS NULL',
-    [recipeId, authorId, JSON.stringify(draft)]
-  );
-  if (!rowCount) throw notFound();
-  return { id: Number(recipeId) };
 }
 
 export async function isTrusted(db, authorId) {

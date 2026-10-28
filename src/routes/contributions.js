@@ -137,6 +137,8 @@ ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
         return redirect(response, '/mes-recettes');
       } catch (error) {
         if (error.code === 'not_found') return notFound(response);
+        if (error.code === 'draft_too_large') return show(response, 413, 'Brouillon trop volumineux', html`<h1>Brouillon trop volumineux</h1>
+<p>${error.message}</p>`);
         throw error;
       }
     },

@@ -115,7 +115,10 @@ describe('author pages', () => {
     const { id } = await saveDraft(pool, { authorId: other.id, draft: recipe({ title: 'Secret' }) });
     const sent = await post([['id', String(id)], ...full('brouillon')]);
     assert.equal(sent.status, 404);
-    assert.equal((await get(`/mes-recettes/edition?id=${id}`)).status, 404);
+    assert.match(sent.text, /Recette introuvable/);
+    const edit = await get(`/mes-recettes/edition?id=${id}`);
+    assert.equal(edit.status, 404);
+    assert.match(edit.text, /Recette introuvable/);
     const { rows } = await pool.query('SELECT draft FROM recipes WHERE id = $1', [id]);
     assert.equal(rows[0].draft.title, 'Secret');
   });
@@ -123,10 +126,15 @@ describe('author pages', () => {
   it('answers 404 on a removed recipe and an unknown id', async () => {
     const { id } = await saveDraft(pool, { authorId: me.id, draft: recipe() });
     await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [id]);
-    assert.equal((await get(`/mes-recettes/edition?id=${id}`)).status, 404);
-    assert.equal((await post([['id', String(id)], ...full('brouillon')])).status, 404);
-    assert.equal((await get('/mes-recettes/edition?id=999999')).status, 404);
-    assert.equal((await get('/mes-recettes/edition?id=abc')).status, 404);
+    for (const res of [
+      await get(`/mes-recettes/edition?id=${id}`),
+      await post([['id', String(id)], ...full('brouillon')]),
+      await get('/mes-recettes/edition?id=999999'),
+      await get('/mes-recettes/edition?id=abc'),
+    ]) {
+      assert.equal(res.status, 404);
+      assert.match(res.text, /Recette introuvable/);
+    }
   });
 
   it('shows the author their private recipe, and hides it from others', async () => {
@@ -137,6 +145,13 @@ describe('author pages', () => {
     assert.ok(mine.text.includes('Ma privée'));
     assert.ok(mine.text.includes('Privée'));
     assert.equal((await get(`/recette?id=${id}`, other)).status, 404);
+  });
+
+  it('answers 413 when the draft outgrows its stored size, and writes nothing', async () => {
+    const sent = await post([['action', 'brouillon'], ...Array(10000).fill(['ingredient_name', 'a'])]);
+    assert.equal(sent.status, 413);
+    assert.match(sent.text, /Brouillon trop volumineux/);
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM recipes')).rows[0].n, 0);
   });
 
   it('escapes HTML in a draft title on the list and in the form', async () => {
