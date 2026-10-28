@@ -1,5 +1,5 @@
 import { checkPassword, hashPassword, hashToken, redeemInvitation, redeemReset, verifyPassword } from '../accounts.js';
-import { hasSecondFactor } from '../mfa.js';
+import { hasSecondFactor, useRecoveryCode, verifyTotp } from '../mfa.js';
 import { clearSessionCookie, closeSession, openSession, sessionCookie } from '../sessions.js';
 import { html, readBody, redirect, sendPage } from '../web.js';
 
@@ -17,19 +17,19 @@ const STAFF_COOKIE_SECONDS = 12 * 3600;
 const dummyHash = await hashPassword('mot de passe factice');
 
 // ponytail: falsifiable si l'app est exposée sans proxy ; la limite par e-mail tient quand même.
-function clientIp(request) {
+export function clientIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
   const last = typeof forwarded === 'string' ? forwarded.split(',').at(-1).trim() : '';
   if (last) return last;
   return request.socket.remoteAddress ?? 'inconnue';
 }
 
-const field = (body, name) => String((body instanceof URLSearchParams ? body.get(name) : body[name]) ?? '');
+export const field = (body, name) => String((body instanceof URLSearchParams ? body.get(name) : body[name]) ?? '');
 
 const input = (label, name, type, value = '') => html`<label>${label}
 <input name="${name}" type="${type}" value="${value}" required></label>`;
 
-function form(response, { status = 200, title, action, button, error, fields }) {
+export function form(response, { status = 200, title, action, button, error, fields }) {
   sendPage(response, status, title, html`<h1>${title}</h1>
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <form method="post" action="${action}">
@@ -41,7 +41,7 @@ ${fields}
 const gone = (response) => sendPage(response, 410, 'Lien expiré', html`<h1>Lien expiré</h1>
 <p>${LINK_GONE}</p>`);
 
-const tooMany = (response) => sendPage(response, 429, 'Trop de tentatives', html`<h1>Trop de tentatives</h1>
+export const tooMany = (response) => sendPage(response, 429, 'Trop de tentatives', html`<h1>Trop de tentatives</h1>
 <p>${TOO_MANY}</p>`);
 
 const passwordFields = (code) => html`<input type="hidden" name="code" value="${code}">
@@ -94,6 +94,16 @@ async function linkIsLive(pool, code, kind) {
   );
   return rowCount > 0;
 }
+
+const verificationPage = (response, error = null, status = 200) => form(response, {
+  status,
+  title: 'Vérification en deux étapes',
+  action: '/connexion/verification',
+  button: 'Vérifier',
+  error,
+  // Passkey sign-in (Task 6) goes here.
+  fields: input('Code à 6 chiffres ou code de récupération', 'code', 'text'),
+});
 
 export function authRoutes(pool, config, { limiter }) {
   const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
@@ -177,6 +187,29 @@ export function authRoutes(pool, config, { limiter }) {
         mfaOk ? '/' : '/connexion/verification',
         sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS)
       );
+    },
+
+    'GET /connexion/verification': (request, response) => {
+      if (!request.session) return redirect(response, '/connexion');
+      return request.session.mfaOk ? redirect(response, '/') : verificationPage(response);
+    },
+
+    'POST /connexion/verification': async (request, response) => {
+      const session = request.session;
+      if (!session) return redirect(response, '/connexion');
+      if (session.mfaOk) return redirect(response, '/');
+      const key = `verification:${session.accountId}`;
+      if (limiter.hit(key)) return tooMany(response);
+      const code = field(await readBody(request), 'code');
+      const ok = /^\d{6}$/.test(code.replace(/\s/g, ''))
+        ? await verifyTotp(pool, config.secretKey, session.accountId, code)
+        : await useRecoveryCode(pool, session.accountId, code);
+      if (!ok) return verificationPage(response, 'Code incorrect.', 400);
+      limiter.reset(key);
+      await closeSession(pool, session.tokenHash);
+      const token = await openSession(pool, session.accountId, { mfaOk: true });
+      const staff = session.role === 'moderator' || session.role === 'admin';
+      redirect(response, '/', sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS));
     },
 
     'POST /deconnexion': async (request, response) => {
