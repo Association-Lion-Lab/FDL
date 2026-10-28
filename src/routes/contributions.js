@@ -26,7 +26,11 @@ function number(value) {
 
 function draftFrom(body) {
   const all = (name) => (body instanceof URLSearchParams ? body.getAll(name) : []);
-  const rows = (names) => all(names[0]).map((_, i) => names.map((name) => all(name)[i] ?? ''));
+  // Read each column once: getAll per row is quadratic and lets one request stall the server.
+  const rows = (names) => {
+    const columns = names.map(all);
+    return columns[0].map((_, i) => columns.map((column) => column[i] ?? ''));
+  };
   const text = (name) => field(body, name).trim();
   return {
     title: text('title'),

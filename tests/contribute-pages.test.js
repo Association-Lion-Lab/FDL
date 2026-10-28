@@ -154,6 +154,13 @@ describe('author pages', () => {
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM recipes')).rows[0].n, 0);
   });
 
+  it('reads 20 000 repeated row fields in linear time', async () => {
+    const started = Date.now();
+    const sent = await post([['action', 'brouillon'], ...Array(20000).fill(['step_kind', ''])]);
+    assert.equal(sent.status, 303);
+    assert.ok(Date.now() - started < 3000, `${Date.now() - started} ms`);
+  });
+
   it('escapes HTML in a draft title on the list and in the form', async () => {
     const sent = await post(full('brouillon', { title: '<script>x</script>' }));
     assert.equal(sent.status, 303);
