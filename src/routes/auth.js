@@ -101,9 +101,20 @@ const verificationPage = (response, error = null, status = 200) => form(response
   action: '/connexion/verification',
   button: 'Vérifier',
   error,
-  // Passkey sign-in (Task 6) goes here.
-  fields: input('Code à 6 chiffres ou code de récupération', 'code', 'text'),
+  fields: html`<button type="button" id="passkey-login">Utiliser ma clé d'accès</button>
+<p id="passkey-message" role="alert"></p>
+<script src="/static/simplewebauthn.js"></script>
+<script src="/static/fdl-passkeys.js"></script>
+${input('Code à 6 chiffres ou code de récupération', 'code', 'text')}`,
 });
+
+// Replaces a half session with a full one and returns its cookie.
+export async function promoteSession(pool, session) {
+  await closeSession(pool, session.tokenHash);
+  const token = await openSession(pool, session.accountId, { mfaOk: true });
+  const staff = session.role === 'moderator' || session.role === 'admin';
+  return sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS);
+}
 
 export function authRoutes(pool, config, { limiter }) {
   const limited = (request, name) => limiter.hit(`${name}:${clientIp(request)}`);
@@ -206,10 +217,7 @@ export function authRoutes(pool, config, { limiter }) {
         : await useRecoveryCode(pool, session.accountId, code);
       if (!ok) return verificationPage(response, 'Code incorrect.', 400);
       limiter.reset(key);
-      await closeSession(pool, session.tokenHash);
-      const token = await openSession(pool, session.accountId, { mfaOk: true });
-      const staff = session.role === 'moderator' || session.role === 'admin';
-      redirect(response, '/', sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS));
+      redirect(response, '/', await promoteSession(pool, session));
     },
 
     'POST /deconnexion': async (request, response) => {

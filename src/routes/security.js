@@ -14,7 +14,7 @@ ${body}
     const id = request.session.accountId;
     const [{ rows: [totp] }, { rows: passkeys }, { rows: [codes] }] = await Promise.all([
       pool.query('SELECT 1 FROM totp_secrets WHERE account_id = $1 AND confirmed_at IS NOT NULL', [id]),
-      pool.query('SELECT name FROM passkeys WHERE account_id = $1 ORDER BY created_at', [id]),
+      pool.query('SELECT id, name FROM passkeys WHERE account_id = $1 ORDER BY created_at', [id]),
       pool.query('SELECT count(*)::int AS n FROM recovery_codes WHERE account_id = $1 AND used_at IS NULL', [id]),
     ]);
     const mandatory = new URL(request.url, 'http://x').searchParams.get('obligatoire') === '1';
@@ -26,8 +26,14 @@ ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <p>${totp ? 'Activé.' : 'Pas activé.'}</p>
 ${totp ? '' : html`<form method="post" action="/compte/securite/totp"><button type="submit">Activer le code à 6 chiffres</button></form>`}
 <h2>Clés d'accès</h2>
-${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}</li>`)}</ul>` : html`<p>Aucune clé d'accès.</p>`}
-<button type="button" disabled>Ajouter une clé d'accès</button>
+${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}
+<form method="post" action="/compte/securite/cles/suppression"><input type="hidden" name="id" value="${p.id}"><button type="submit">Supprimer</button></form></li>`)}</ul>` : html`<p>Aucune clé d'accès.</p>`}
+<label>Nom de la clé <input id="passkey-name" maxlength="40"></label>
+<button type="button" id="passkey-add">Ajouter une clé d'accès</button>
+<p id="passkey-message" role="status"></p>
+<ul id="passkey-codes"></ul>
+<script src="/static/simplewebauthn.js"></script>
+<script src="/static/fdl-passkeys.js"></script>
 <h2>Codes de récupération</h2>
 <p>Codes restants : ${codes.n}.</p>
 <form method="post" action="/compte/securite/recuperation"><button type="submit">Nouveaux codes de récupération</button></form>
@@ -81,6 +87,17 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
       const { rows: [{ n }] } = await pool.query('SELECT count(*)::int AS n FROM recovery_codes WHERE account_id = $1', [id]);
       if (n) return redirect(response, '/compte/securite');
       showCodes(response, await createRecoveryCodes(pool, id));
+    },
+
+    'POST /compte/securite/cles/suppression': async (request, response) => {
+      const { accountId, role } = request.session;
+      const id = field(await readBody(request), 'id');
+      const { rows: keys } = await pool.query('SELECT id FROM passkeys WHERE account_id = $1', [accountId]);
+      if ((role === 'moderator' || role === 'admin') && keys.length === 1 && keys[0].id === id) {
+        return overview(request, response, { error: "Votre rôle exige une seconde étape : gardez au moins une clé d'accès.", status: 400 });
+      }
+      await pool.query('DELETE FROM passkeys WHERE id = $1 AND account_id = $2', [id, accountId]);
+      redirect(response, '/compte/securite');
     },
 
     'POST /compte/securite/recuperation': async (request, response) => {

@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from './db.js';
 import { createApp, sendError, sendJson } from './http.js';
 import { createLimiter } from './ratelimit.js';
+import { passkeyRoutes } from './passkeys.js';
 import { authRoutes } from './routes/auth.js';
 import { securityRoutes } from './routes/security.js';
 import { loadSession } from './sessions.js';
@@ -22,6 +23,10 @@ export const PUBLIC_PATHS = new Set([
   '/reinitialisation',
   '/deconnexion',
   '/static/fdl.css',
+  '/static/simplewebauthn.js',
+  '/static/fdl-passkeys.js',
+  '/cles/connexion/options',
+  '/cles/connexion/verification',
 ]);
 
 export function buildBefore(pool, config) {
@@ -46,11 +51,12 @@ export function buildBefore(pool, config) {
   };
 }
 
-export function buildRoutes(pool, log = console.error, config) {
+export function buildRoutes(pool, log = console.error, config, passkeyLib) {
   const limiter = createLimiter();
   return {
     ...authRoutes(pool, config, { limiter }),
     ...securityRoutes(pool, config, { limiter }),
+    ...passkeyRoutes(pool, config, passkeyLib, { limiter }),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);
