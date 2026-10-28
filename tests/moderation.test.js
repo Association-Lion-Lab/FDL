@@ -229,7 +229,9 @@ describe('reports', () => {
   it('refuses an unknown category or a 1 001 character detail', async () => {
     const id = await published();
     const who = await reporter();
-    assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'nope' }, who)).status, 400);
+    for (const category of ['nope', 'constructor']) {
+      assert.equal((await postTo('/recette/signaler', { id: String(id), category }, who)).status, 400, category);
+    }
     assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'spam', detail: 'x'.repeat(1001) }, who)).status, 400);
     assert.equal((await postTo('/recette/signaler', { id: String(id), category: 'spam', detail: 'x'.repeat(1000) }, who)).status, 200);
     assert.equal((await openReports(id)).length, 1);

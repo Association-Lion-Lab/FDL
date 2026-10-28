@@ -117,7 +117,7 @@ export function contributionRoutes(pool, config, { limiter }) {
       if (!await visible(id)) return notFound(response);
       const category = field(body, 'category');
       const detail = field(body, 'detail').trim();
-      if (!(category in REPORT_CATEGORIES)) return reportPage(response, id, { error: 'Choisissez une catégorie.', status: 400 });
+      if (!Object.hasOwn(REPORT_CATEGORIES, category)) return reportPage(response, id, { error: 'Choisissez une catégorie.', status: 400 });
       if (detail.length > 1000) return reportPage(response, id, { error: 'Le détail est limité à 1 000 caractères.', status: 400 });
       // A second open report of the same account is the unique index's conflict: same answer, no row.
       await pool.query('INSERT INTO reports (recipe_id, reporter_id, category, detail) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
