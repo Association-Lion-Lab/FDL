@@ -19,9 +19,11 @@ export function encryptSecret(key, accountId, plain) {
 export function decryptSecret(key, accountId, stored) {
   const [version, iv, tag, data] = String(stored).split(':');
   if (version !== 'v1' || !data) throw new Error('Secret illisible.');
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'));
+  const tagBytes = Buffer.from(tag, 'base64');
+  if (tagBytes.length !== 16) throw new Error('Secret illisible.');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'), { authTagLength: 16 });
   decipher.setAAD(Buffer.from(String(accountId)));
-  decipher.setAuthTag(Buffer.from(tag, 'base64'));
+  decipher.setAuthTag(tagBytes);
   return Buffer.concat([decipher.update(Buffer.from(data, 'base64')), decipher.final()]).toString('utf8');
 }
 
@@ -39,20 +41,22 @@ export async function startTotp(db, key, accountId, label) {
      WHERE totp_secrets.confirmed_at IS NULL`,
     [accountId, encryptSecret(key, accountId, secret.base32)]
   );
-  if (!rowCount) throw new Error('Le code à 6 chiffres est déjà activé.');
+  if (!rowCount) throw Object.assign(new Error('Le code à 6 chiffres est déjà activé.'), { code: 'totp_confirmed' });
   const uri = totp.toString();
   return { secret: secret.base32, uri, qrSvg: renderSVG(uri) };
 }
 
-export async function verifyTotp(db, key, accountId, code) {
+// Sign-in only accepts a confirmed secret; `activate` lets the first good code confirm a pending one.
+export async function verifyTotp(db, key, accountId, code, { activate = false } = {}) {
   const token = String(code).replace(/\s/g, '');
   if (!/^\d{6}$/.test(token)) return false;
-  const { rows: [row] } = await db.query('SELECT secret FROM totp_secrets WHERE account_id = $1', [accountId]);
-  if (!row) return false;
+  const { rows: [row] } = await db.query('SELECT secret, confirmed_at FROM totp_secrets WHERE account_id = $1', [accountId]);
+  if (!row || (!activate && !row.confirmed_at)) return false;
   const totp = makeTotp('x', OTPAuth.Secret.fromBase32(decryptSecret(key, accountId, row.secret)));
-  const delta = totp.validate({ token, window: 1 });
+  const timestamp = Date.now();
+  const delta = totp.validate({ token, timestamp, window: 1 });
   if (delta === null) return false;
-  const step = Math.floor(Date.now() / 1000 / PERIOD) + delta;
+  const step = Math.floor(timestamp / 1000 / PERIOD) + delta;
   // One statement: a replayed step, even from a concurrent request, updates no row.
   const { rowCount } = await db.query(
     `UPDATE totp_secrets SET last_step = $2, confirmed_at = COALESCE(confirmed_at, now())

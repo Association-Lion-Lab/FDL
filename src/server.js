@@ -39,7 +39,7 @@ export function buildBefore(pool, config) {
     }
     if (PUBLIC_PATHS.has(pathname)) return true;
     if (!request.session?.mfaOk) {
-      redirect(response, '/connexion');
+      redirect(response, request.session ? '/connexion/verification' : '/connexion');
       return false;
     }
     return true;

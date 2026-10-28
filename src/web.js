@@ -29,6 +29,7 @@ export function html(strings, ...values) {
 export function sendPage(response, status, title, body) {
   response.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
     'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'same-origin',

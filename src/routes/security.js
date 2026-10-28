@@ -55,7 +55,8 @@ ${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}</li>`)}</u
       let started;
       try {
         started = await startTotp(pool, config.secretKey, id, account.email);
-      } catch {
+      } catch (error) {
+        if (error.code !== 'totp_confirmed') throw error;
         return overview(request, response, { error: 'Le code à 6 chiffres est déjà activé.', status: 409 });
       }
       page(response, 'Activer le code à 6 chiffres', html`
@@ -70,13 +71,13 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
     },
 
     'POST /compte/securite/totp/confirmation': async (request, response) => {
-      if (limited(request, 'verification')) return tooMany(response);
+      if (limited(request, 'activation')) return tooMany(response);
       const id = request.session.accountId;
       const code = field(await readBody(request), 'code');
-      if (!(await verifyTotp(pool, config.secretKey, id, code))) {
+      if (!(await verifyTotp(pool, config.secretKey, id, code, { activate: true }))) {
         return overview(request, response, { error: "Code incorrect. Recommencez l'activation.", status: 400 });
       }
-      limiter.reset(`verification:${id}`);
+      limiter.reset(`activation:${id}`);
       const { rows: [{ n }] } = await pool.query('SELECT count(*)::int AS n FROM recovery_codes WHERE account_id = $1', [id]);
       if (n) return redirect(response, '/compte/securite');
       showCodes(response, await createRecoveryCodes(pool, id));

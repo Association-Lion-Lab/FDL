@@ -53,7 +53,7 @@ const codeFor = (secret, timestamp = Date.now()) =>
   OTPAuth.TOTP.generate({ secret: OTPAuth.Secret.fromBase32(secret), algorithm: 'SHA1', digits: 6, period: 30, timestamp });
 const enable = async () => {
   const { secret } = await startTotp(pool, key, id, 'lea@example.org');
-  assert.equal(await verifyTotp(pool, key, id, codeFor(secret, Date.now() - 30000)), true);
+  assert.equal(await verifyTotp(pool, key, id, codeFor(secret, Date.now() - 30000), { activate: true }), true);
   return secret;
 };
 
@@ -64,6 +64,8 @@ describe('secret encryption', () => {
     assert.equal(decryptSecret(key, 1, stored), 'ABC');
     assert.throws(() => decryptSecret(key, 2, stored));
     assert.throws(() => decryptSecret(Buffer.alloc(32, 8), 1, stored));
+    const [v, iv, tag, data] = stored.split(':');
+    assert.throws(() => decryptSecret(key, 1, [v, iv, tag.slice(0, 8), data].join(':')));
   });
 });
 
@@ -81,9 +83,15 @@ describe('totp', () => {
   it('accepts a right code once, then rejects the replay', async () => {
     const { secret } = await startTotp(pool, key, id, 'lea@example.org');
     const code = codeFor(secret);
-    assert.equal(await verifyTotp(pool, key, id, code), true);
+    assert.equal(await verifyTotp(pool, key, id, code, { activate: true }), true);
     assert.equal(await hasSecondFactor(pool, id), true);
     assert.equal(await verifyTotp(pool, key, id, code), false);
+  });
+
+  it('does not accept a pending secret at sign-in, nor confirm it', async () => {
+    const { secret } = await startTotp(pool, key, id, 'lea@example.org');
+    assert.equal(await verifyTotp(pool, key, id, codeFor(secret)), false);
+    assert.equal(await hasSecondFactor(pool, id), false);
   });
 
   it('rejects a wrong code and keeps the secret unconfirmed', async () => {
@@ -125,7 +133,7 @@ describe('sign-in with a second factor', () => {
     assert.equal(response.headers.get('location'), '/connexion/verification');
     const old = cookieOf(response);
     const held = await get('/', old);
-    assert.equal(held.headers.get('location'), '/connexion');
+    assert.equal(held.headers.get('location'), '/connexion/verification');
     assert.equal((await get('/connexion/verification', old)).status, 200);
 
     assert.equal((await post('/connexion/verification', { code: '12' }, old)).status, 400);
@@ -168,6 +176,7 @@ describe('/compte/securite', () => {
     const start = await post('/compte/securite/totp', {}, cookie);
     const text = await start.text();
     assert.ok(text.includes('<svg') && text.includes('otpauth://'));
+    assert.equal(start.headers.get('cache-control'), 'no-store');
     const { rows: [row] } = await pool.query('SELECT secret FROM totp_secrets WHERE account_id = $1', [id]);
     const secret = decryptSecret(key, id, row.secret);
     assert.ok(text.includes(secret.match(/.{1,4}/g).join(' ')));

@@ -117,7 +117,9 @@ describe('beta gate with a session', () => {
     try {
       const id = await account();
       const noMfa = await openSession(pool, id, { mfaOk: false });
-      assert.equal((await get(base, '/prive', noMfa)).status, 303);
+      const half = await get(base, '/prive', noMfa);
+      assert.equal(half.status, 303);
+      assert.equal(half.headers.get('location'), '/connexion/verification');
 
       const token = await openSession(pool, id, { mfaOk: true });
       assert.equal((await get(base, '/prive', token)).status, 200);
