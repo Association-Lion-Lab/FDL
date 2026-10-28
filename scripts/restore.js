@@ -11,7 +11,7 @@ import { createPool, LATEST_SCHEMA_VERSION } from '../src/db.js';
 
 const run = promisify(execFile);
 // Mêmes exclusions que la sauvegarde.
-const EXCLUDED = new Set(['tmp', 'backups']);
+const EXCLUDED = new Set(['tmp', 'backups', 'logs']);
 
 const OWN_CODES = new Set(['backup_invalid', 'backup_corrupted', 'schema_incompatible', 'target_not_empty', 'restore_failed', 'files_copy_failed']);
 

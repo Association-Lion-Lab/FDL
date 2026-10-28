@@ -47,6 +47,9 @@ test('round trip restores schema, rows and files', async () => {
     // backups/ et tmp/ ne comptent pas comme données.
     await mkdir(join(dir, 'backups'));
     await writeFile(join(dir, 'backups', 'x'), 'x');
+    // Le journal de sécurité (logs/) non plus.
+    await mkdir(join(dir, 'logs'));
+    await writeFile(join(dir, 'logs', 'securite.log'), '{}\n');
     await restoreBackup({ config: { dataDir: dir, pgBinDir }, database: db.database, backupDir: backup });
     assert.equal(await readSchemaVersion(db.pool), await readSchemaVersion(dbA.pool));
     const { rows } = await db.pool.query('SELECT n FROM restore_probe ORDER BY n');

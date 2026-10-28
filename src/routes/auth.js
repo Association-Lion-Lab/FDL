@@ -110,10 +110,11 @@ ${input('Code à 6 chiffres ou code de récupération', 'code', 'text')}`,
 
 // Replaces a half session with a full one and returns its cookie.
 export async function promoteSession(pool, session, request, securityLog) {
+  const staff = session.role === 'moderator' || session.role === 'admin';
+  // Logged first: if the log fails, the half session is left as it was and no full one exists.
+  if (staff) securityLog('staff_login', { accountId: session.accountId, ip: clientIp(request) });
   await closeSession(pool, session.tokenHash);
   const token = await openSession(pool, session.accountId, { mfaOk: true });
-  const staff = session.role === 'moderator' || session.role === 'admin';
-  if (staff) securityLog('staff_login', { accountId: session.accountId, ip: clientIp(request) });
   return sessionCookie(token, staff ? STAFF_COOKIE_SECONDS : MEMBER_COOKIE_SECONDS);
 }
 
@@ -200,11 +201,11 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
       }
 
       limiter.reset(emailKey); // never the IP key: it must not be clearable by an account holder
-      if (request.session) await closeSession(pool, request.session.tokenHash);
       const mfaOk = !(await hasSecondFactor(pool, account.id));
-      const token = await openSession(pool, account.id, { mfaOk });
       const staff = account.role === 'moderator' || account.role === 'admin';
-      if (staff && mfaOk) securityLog('staff_login', { accountId: account.id, ip });
+      if (staff && mfaOk) securityLog('staff_login', { accountId: account.id, ip }); // before any session exists
+      if (request.session) await closeSession(pool, request.session.tokenHash);
+      const token = await openSession(pool, account.id, { mfaOk });
       redirect(
         response,
         mfaOk ? '/' : '/connexion/verification',

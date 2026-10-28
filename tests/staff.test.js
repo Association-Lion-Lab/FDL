@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -135,6 +135,37 @@ describe('sessions', () => {
     await pool.query("UPDATE sessions SET created_at = now() - interval '13 hours'");
     assert.equal((await send('/admin', { cookie })).headers.get('location'), '/connexion');
   });
+
+  it('refuses an old session of a member promoted to admin since', async () => {
+    const id = await account('member');
+    const cookie = await fullSession(id);
+    await pool.query("UPDATE accounts SET role = 'admin'");
+    await pool.query("UPDATE sessions SET created_at = now() - interval '13 hours'");
+    assert.equal((await send('/', { cookie })).headers.get('location'), '/connexion');
+  });
+});
+
+describe('log hardening', () => {
+  it('keeps the file private', { skip: process.platform === 'win32' }, async () => {
+    await account();
+    await send('/connexion', { method: 'POST', form: { email: 'staff@example.org', password: 'x' } });
+    assert.equal((await stat(join(dataDir, 'logs', 'securite.log'))).mode & 0o777, 0o600);
+  });
+
+  it('keeps a failed login a normal answer when the log cannot be written', async () => {
+    await account();
+    await writeFile(join(dataDir, 'logs'), 'pas un dossier');
+    const bad = await send('/connexion', { method: 'POST', form: { email: 'staff@example.org', password: 'x' } });
+    assert.equal(bad.status, 200);
+  });
+
+  it('opens no session when staff_login cannot be written', async () => {
+    await account();
+    await writeFile(join(dataDir, 'logs'), 'pas un dossier');
+    const response = await send('/connexion', { method: 'POST', form: { email: 'staff@example.org', password: PASSWORD } });
+    assert.equal(response.status, 500);
+    assert.equal((await pool.query('SELECT 1 FROM sessions')).rowCount, 0);
+  });
 });
 
 describe('re-authentication', () => {
@@ -157,6 +188,12 @@ describe('re-authentication', () => {
     assert.equal(evil.headers.get('location'), '/admin');
     const until = new Date(await elevatedUntil(id)).getTime() - Date.now();
     assert.ok(until > 4 * 60000 && until <= 5 * 60000);
+    for (const bad of ['//evil.example', '/admin@evil.example', '/admin\\evil', '/admin/../compte', '/admin/%2e%2e/compte', '/administrateur']) {
+      await pool.query('UPDATE totp_secrets SET last_step = NULL');
+      const response = await send('/admin/confirmation', { method: 'POST', cookie, form: { retour: bad, code: codeFor(secret) } });
+      assert.equal(response.headers.get('location'), '/admin', bad);
+    }
+    await pool.query('UPDATE totp_secrets SET last_step = NULL');
     await pool.query('UPDATE sessions SET elevated_until = NULL');
     const good = await send('/admin/confirmation', { method: 'POST', cookie, form: { retour: '/admin/x?a=1', code: codeFor(secret, Date.now() + 30000) } });
     assert.equal(good.headers.get('location'), '/admin/x?a=1');

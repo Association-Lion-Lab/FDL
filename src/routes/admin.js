@@ -3,8 +3,18 @@ import { elevateSession } from '../sessions.js';
 import { html, readBody, redirect, sendPage } from '../web.js';
 import { clientIp, field, form, tooMany } from './auth.js';
 
-// Only paths under /admin: anything else (absolute URL, //host, /other) falls back to /admin.
-const safeReturn = (value) => (/^\/admin(?:[/?][\x21-\x7e]*)?$/.test(value) ? value : '/admin');
+// Only paths under /admin, resolved so dot segments (also %2e) cannot climb out:
+// anything else (absolute URL, //host, /admin@host, /admin/../x) falls back to /admin.
+function safeReturn(value) {
+  const origin = 'http://x';
+  try {
+    const url = new URL(value, origin);
+    const inside = url.pathname === '/admin' || url.pathname.startsWith('/admin/');
+    return url.origin === origin && inside && !/[\\]/.test(value) ? url.pathname + url.search : '/admin';
+  } catch {
+    return '/admin';
+  }
+}
 
 // Where a sensitive route sends a session that is not elevated (see requireElevated in sessions.js).
 export const elevationUrl = (request) => `/admin/confirmation?retour=${encodeURIComponent(request.url)}`;
