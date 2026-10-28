@@ -29,7 +29,7 @@ export async function saveDraft(db, { recipeId = null, authorId, draft }) {
 
 export async function isTrusted(db, authorId) {
   const { rows } = await db.query(
-    'SELECT count(*)::int AS n FROM recipes WHERE author_id = $1 AND published_version IS NOT NULL',
+    'SELECT count(*)::int AS n FROM recipes WHERE author_id = $1 AND published_version IS NOT NULL AND removed_at IS NULL',
     [authorId]
   );
   return rows[0].n >= TRUST_THRESHOLD;
@@ -58,6 +58,7 @@ export async function autoFlags(db, fields, { recipeId = null, dataDir }) {
 }
 
 export async function submitVersion(db, { recipeId, authorId, mode, dataDir }) {
+  if (mode !== 'public' && mode !== 'private') throw fail('invalid_mode', 'Mode inconnu.');
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -76,16 +77,16 @@ export async function submitVersion(db, { recipeId, authorId, mode, dataDir }) {
     if (mode === 'public') {
       flags = await autoFlags(client, fields, { recipeId, dataDir });
       status = flags.length || !(await isTrusted(client, authorId)) ? 'pending' : 'published';
-      const { rows: replaced } = await client.query(
-        "UPDATE recipe_versions SET status = 'rejected' WHERE recipe_id = $1 AND status = 'pending' RETURNING version",
-        [recipeId]
+    }
+    const { rows: replaced } = await client.query(
+      "UPDATE recipe_versions SET status = 'rejected' WHERE recipe_id = $1 AND status = 'pending' RETURNING version",
+      [recipeId]
+    );
+    for (const { version } of replaced) {
+      await client.query(
+        "INSERT INTO moderation_decisions (recipe_id, version, decision, reason) VALUES ($1, $2, 'rejected', 'Remplacée par une version plus récente.')",
+        [recipeId, version]
       );
-      for (const { version } of replaced) {
-        await client.query(
-          "INSERT INTO moderation_decisions (recipe_id, version, decision, reason) VALUES ($1, $2, 'rejected', 'Remplacée par une version plus récente.')",
-          [recipeId, version]
-        );
-      }
     }
     const { rows: [{ version }] } = await client.query(
       'SELECT coalesce(max(version), 0) + 1 AS version FROM recipe_versions WHERE recipe_id = $1',
@@ -98,7 +99,7 @@ export async function submitVersion(db, { recipeId, authorId, mode, dataDir }) {
         [recipeId, version]
       );
     } else if (status === 'private') {
-      await client.query("UPDATE recipes SET visibility = 'private' WHERE id = $1", [recipeId]);
+      await client.query("UPDATE recipes SET visibility = 'private' WHERE id = $1 AND published_version IS NULL", [recipeId]);
     }
     await client.query('COMMIT');
     return { version, status, flags };

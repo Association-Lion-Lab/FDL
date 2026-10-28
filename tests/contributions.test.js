@@ -134,3 +134,31 @@ describe('submitVersion', () => {
     assert.equal(mine[0].lastDecision, null);
   });
 });
+
+describe('fix round 1', () => {
+  it('rejects a mode that is not exactly public or private', async () => {
+    const authorId = await author();
+    const { id } = await publishVersion(pool, { authorId, fields: recipe() });
+    await saveDraft(pool, { recipeId: id, authorId, draft: recipe() });
+    for (const mode of ['Public', undefined]) {
+      await rejects(submitVersion(pool, { recipeId: id, authorId, mode, dataDir }), 'invalid_mode');
+    }
+    assert.equal((await searchRecipes(pool)).items.length, 1);
+  });
+
+  it('does not count removed recipes toward trust', async () => {
+    const authorId = await trusted();
+    assert.equal(await isTrusted(pool, authorId), true);
+    await pool.query("UPDATE recipes SET removed_at = now() WHERE id = (SELECT min(id) FROM recipes WHERE author_id = $1)", [authorId]);
+    assert.equal(await isTrusted(pool, authorId), false);
+  });
+
+  it('replaces a pending version when the author goes private', async () => {
+    const authorId = await author();
+    const { id } = await submit(authorId, {});
+    await submitVersion(pool, { recipeId: id, authorId, mode: 'private', dataDir });
+    const { rows } = await pool.query('SELECT version, status FROM recipe_versions WHERE recipe_id = $1 ORDER BY version', [id]);
+    assert.deepEqual(rows.map((r) => r.status), ['rejected', 'private']);
+    assert.equal((await pool.query('SELECT 1 FROM moderation_decisions WHERE recipe_id = $1', [id])).rowCount, 1);
+  });
+});
