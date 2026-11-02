@@ -54,8 +54,9 @@ export function buildBefore(pool, config) {
       // unparseable target: never public
     }
     if (PUBLIC_PATHS.has(pathname)) return true;
+    const api = pathname?.startsWith('/api/');
     if (!request.session?.mfaOk) {
-      if (pathname?.startsWith('/api/')) {
+      if (api) {
         sendError(response, 401, 'unauthorized', 'Connexion requise.');
         return false;
       }
@@ -67,6 +68,10 @@ export function buildBefore(pool, config) {
     if ((role === 'moderator' || role === 'admin') && !KEY_PAGES.test(pathname)) {
       const { rowCount } = await pool.query('SELECT 1 FROM passkeys WHERE account_id = $1', [accountId]);
       if (!rowCount) {
+        if (api) {
+          sendError(response, 403, 'unauthorized', "Ajoutez une clé d'accès à votre compte avant d'utiliser l'API.");
+          return false;
+        }
         redirect(response, '/compte/securite?obligatoire=1');
         return false;
       }

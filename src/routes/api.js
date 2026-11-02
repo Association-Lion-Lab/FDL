@@ -54,11 +54,15 @@ export function apiRoutes(pool, config) {
       const { accountId } = request.session;
       const mine = (await listMine(pool, accountId)).filter(({ state }) => ['published', 'published_pending', 'private'].includes(state));
       const states = await recipeStates(pool, mine.map(({ id }) => String(id)), accountId);
-      const items = mine.flatMap(({ id, title, state }) => {
-        const { version } = states.get(id);
-        // A banned author's published recipe has no version here: it is removed.
-        return version == null ? [] : [{ id, title, state: state === 'private' ? 'private' : 'published', version }];
-      });
+      // listMine's title is the latest version's: take the one of the version we report.
+      const found = mine.filter(({ id }) => states.get(id).version != null);
+      const { rows } = await pool.query(
+        'SELECT v.recipe_id, v.title FROM unnest($1::bigint[], $2::int[]) AS t(id, version) JOIN recipe_versions v ON v.recipe_id = t.id AND v.version = t.version',
+        [found.map(({ id }) => id), found.map(({ id }) => states.get(id).version)]
+      );
+      const titles = new Map(rows.map((row) => [Number(row.recipe_id), row.title]));
+      // A banned author's published recipe has no version here: it is removed, hence skipped.
+      const items = found.map(({ id, state }) => ({ id, title: titles.get(id), state: state === 'private' ? 'private' : 'published', version: states.get(id).version }));
       json(response, 200, { items });
     },
   };

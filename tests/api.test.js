@@ -184,9 +184,20 @@ describe('/api/v1', () => {
     const priv = await submit(me, 'private');
     await saveDraft(pool, { recipeId: null, authorId: me, draft: recipe() });
     await publish(await account());
+    const pending = await publish(me, { title: 'Titre publié' });
+    const saved = await saveDraft(pool, { recipeId: pending, authorId: me, draft: recipe({ title: 'Titre en attente' }) });
+    await submitVersion(pool, { recipeId: saved.id, authorId: me, mode: 'public', dataDir: tmpdir() });
     const response = await get('/api/v1/mes-recettes');
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const { items } = await response.json();
-    assert.deepEqual(items.map(({ id, state, version }) => [String(id), state, version]).sort(), [[priv, 'private', 1], [pub, 'published', 1]].sort());
+    assert.deepEqual(items.map(({ id, state, version }) => [String(id), state, version]).sort(), [[priv, 'private', 1], [pub, 'published', 1], [pending, 'published', 1]].sort());
+    assert.equal(items.find(({ id }) => String(id) === pending).title, 'Titre publié');
+  });
+
+  it('answers 403 JSON to staff without a passkey', async () => {
+    await pool.query("UPDATE accounts SET role = 'moderator' WHERE id = $1", [me]);
+    const response = await get('/api/v1/recettes');
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, 'unauthorized');
   });
 });
