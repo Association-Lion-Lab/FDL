@@ -166,7 +166,7 @@ Pages HTML réservées à une session complète pendant la bêta :
 | `GET /recherche` | paramètres `q`, `duree` (`15`, `30`, `60`), `regime` (`vegan`, `vegetarian`, `pescetarian`), `univers` (identifiant), `saison` (répétable : `spring`, `summer`, `autumn`, `winter`), `apres` (curseur) ; une valeur inconnue de `duree`, `regime` ou `saison` est ignorée ; curseur invalide → `400` « Lien de page invalide » |
 | `GET /recette?id=<id>` | recette publiée, dernière version ; identifiant invalide, inconnu ou recette non visible → `404` « Recette introuvable » |
 
-Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Photos, commentaires et import dans Manger! viendront avec les tranches suivantes. La moyenne des notes s'affiche sur la page et les cartes d'une recette (voir « Contributions »).
+Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Commentaires et import dans Manger! viendront avec les tranches suivantes. La moyenne des notes s'affiche sur la page et les cartes d'une recette (voir « Contributions »).
 
 ## Contributions
 
@@ -191,6 +191,24 @@ Confiance progressive : tant que l'auteur a moins de 3 recettes (non retirées) 
 Chaque décision de modération a un motif de 1 à 500 caractères, écrit dans `moderation_decisions` et visible par l'auteur sur `/mes-recettes`.
 
 Actions ajoutées à `admin_log` (journal d'administration, cible = identifiant de la recette, détail = recette, version et motif) : `recipe_accepted`, `recipe_rejected`, `recipe_removed`, `report_dismissed`. L'écran `/admin/univers` ajoute `universe_saved` (cible = identifiant de l'univers).
+
+## Photos
+
+Une photo par recette, envoyée dans le formulaire `/mes-recettes/edition` (multipart). Le texte du brouillon est enregistré dans tous les cas.
+
+Limites côté serveur : JPEG uniquement, 1 Mio au plus (`1024*1024` octets), 8 000 px au plus par côté. Une photo plus grosse est refusée avec « La photo dépasse 1 Mo. Activez JavaScript pour qu'elle soit réduite automatiquement, ou envoyez une image plus petite. » (code `PHOTO_TOO_BIG`). Le script facultatif `/static/fdl-photo.js` convertit dans le navigateur n'importe quelle image en JPEG de 1 600 px au plus sur le plus grand côté, qualité 0,8, orientation appliquée. 10 envois de photo par compte et par 15 minutes. Le corps de la requête est limité à environ 8 Mio : au-delà, la réponse est un `413` `payload_too_large` sans le message ci-dessus.
+
+Le serveur ne garde que les segments JPEG d'une liste autorisée : SOF0 à SOF2, DHT, DQT, DRI, SOS et RST. Les segments APP0 à APP15 et COM sont retirés (EXIF, dont position GPS et orientation, XMP, profil ICC, Adobe). Tout autre marqueur fait refuser le fichier, et rien après EOI n'est conservé. Deux effets : sans JavaScript, une photo de téléphone peut s'afficher tournée ; les profils de couleur disparaissent (décalage de couleur rare).
+
+Le fichier est stocké dans `<dossier de données>/photos/<sha256 en hexadécimal>.jpg`, écrit par `tmp/` puis renommé. `photo_credit` : 1 à 80 caractères, obligatoire dès qu'il y a une photo. La publication exige une seconde case, « J'ai pris cette photo ou j'ai le droit de la publier ». Changer la photo crée une nouvelle version à la publication suivante.
+
+| Route | Rôle |
+| --- | --- |
+| `GET /photo?f=<64 hex>` | session complète exigée (bêta fermée). Visible par tous pour la version publiée d'une recette visible ; par l'auteur pour ses brouillons et les versions d'une recette non retirée ; par la modération pour toute version. Sinon `404`. En-têtes : `content-type: image/jpeg`, `x-content-type-options: nosniff`, `cache-control: private, max-age=86400` |
+
+La page recette et l'aperçu de modération affichent la photo avec « Photo : <crédit> ».
+
+Nettoyage : un fichier cité par aucun brouillon ni aucune version d'une recette non retirée est supprimé quand il a plus de 10 minutes. Il s'exécute au démarrage, après chaque envoi ou retrait de photo et après chaque retrait par la modération.
 
 ## Limites de la bêta à vérifier
 

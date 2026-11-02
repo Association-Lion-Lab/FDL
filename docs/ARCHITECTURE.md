@@ -38,4 +38,6 @@ Le socle et `acces` sont construits. Le serveur est un seul processus Node.js, a
 - **Journaux** : le journal d'administration est en base (table `admin_log`, page `/admin/journal`). Le journal de sécurité est le fichier `logs/securite.log` du dossier de données, une ligne JSON par événement, exclu des sauvegardes. Voir `docs/EXPLOITATION.md`.
 - **Protection** : tout `POST` dont `Origin` diffère de `FDL_ORIGIN` est refusé (`bad_origin`) ; les corps sont limités à 16 Kio.
 
-Catalogue, photos et interface publique ne sont pas encore construits.
+- **Photos** (`photos`, construit) : un JPEG par recette, nettoyé de ses métadonnées par une liste de segments autorisés, stocké sous `photos/<sha256>.jpg` dans le dossier de données et servi par `GET /photo` selon la visibilité de la version. Un nettoyage supprime les fichiers orphelins de plus de 10 minutes. Voir `docs/CONTRATS.md`.
+
+L'interface publique n'est pas encore construite.
