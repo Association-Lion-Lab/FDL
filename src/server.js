@@ -9,7 +9,9 @@ import { passkeyRoutes } from './passkeys.js';
 import { sweepPhotos } from './photos.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
-import { authRoutes } from './routes/auth.js';
+import { loadToken } from './oauth.js';
+import { authRoutes, clientIp } from './routes/auth.js';
+import { SUITE_COOKIE, oauthRoutes } from './routes/oauth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { commentRoutes } from './routes/comments.js';
 import { contributionRoutes } from './routes/contributions.js';
@@ -35,34 +37,55 @@ export const PUBLIC_PATHS = new Set([
   '/static/fdl-passkeys.js',
   '/cles/connexion/options',
   '/cles/connexion/verification',
+  '/oauth/jeton',
 ]);
 
 // Sign-out and static assets are already public; these are the rest of what a keyless staff session may open.
 const KEY_PAGES = /^\/(?:compte\/securite(?:\/|$)|cles\/)/;
 
-export function buildBefore(pool, config) {
+export function buildBefore(pool, config, { limiter = createLimiter({ max: 300 }) } = {}) {
   return async (request, response) => {
-    if (request.method === 'POST' && request.headers.origin !== config.origin) {
-      sendError(response, 403, 'bad_origin', 'Origine de la requête refusée.');
-      return false;
-    }
-    request.session = await loadSession(pool, parseCookies(request).fdl_session);
     let pathname = null;
     try {
       pathname = new URL(request.url, 'http://x').pathname;
     } catch {
       // unparseable target: never public
     }
-    if (PUBLIC_PATHS.has(pathname)) return true;
+    // The token call comes from the Manger! server, which sends no Origin.
+    const tokenCall = request.method === 'POST' && pathname === '/oauth/jeton';
+    if (request.method === 'POST' && !tokenCall && request.headers.origin !== config.origin) {
+      sendError(response, 403, 'bad_origin', 'Origine de la requête refusée.');
+      return false;
+    }
     const api = pathname?.startsWith('/api/');
+    const tooMany = () => sendError(response, 429, 'rate_limited', 'Trop de requêtes. Réessayez plus tard.');
+    if ((api || pathname === '/oauth/jeton') && limiter.hit(`api-ip:${clientIp(request)}`)) {
+      tooMany();
+      return false;
+    }
+    const bearer = api && request.headers.authorization?.startsWith('Bearer ');
+    if (bearer) {
+      request.session = await loadToken(pool, request.headers.authorization.slice(7));
+      if (request.session && limiter.hit(`api-client:${request.session.clientId}`)) {
+        tooMany();
+        return false;
+      }
+    } else {
+      request.session = await loadSession(pool, parseCookies(request).fdl_session);
+    }
+    if (PUBLIC_PATHS.has(pathname)) return true;
     // API answers depend on the account: never cached.
     if (api) response.setHeader('cache-control', 'no-store');
     if (!request.session?.mfaOk) {
       if (api) {
+        response.setHeader('www-authenticate', 'Bearer');
         sendError(response, 401, 'unauthorized', 'Connexion requise.');
         return false;
       }
-      redirect(response, request.session ? '/connexion/verification' : '/connexion');
+      const cookies = request.method === 'GET' && pathname === '/oauth/autoriser'
+        ? [`${SUITE_COOKIE}=${encodeURIComponent(request.url)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`]
+        : [];
+      redirect(response, request.session ? '/connexion/verification' : '/connexion', cookies);
       return false;
     }
     // Staff without a passkey can only reach the pages that let them add one.
@@ -95,6 +118,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...commentRoutes(pool, config, { limiter }),
     ...moderationRoutes(pool, config),
     ...apiRoutes(pool, config),
+    ...oauthRoutes(pool, config),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);

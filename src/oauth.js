@@ -19,7 +19,7 @@ function validClient(value) {
 function validRedirect(value, clientId) {
   try {
     const url = new URL(value);
-    return value.length <= 2000 && !url.hash && url.origin === clientId;
+    return value.length <= 2000 && !value.includes('#') && url.href === value && url.origin === clientId;
   } catch {
     return false;
   }
