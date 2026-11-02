@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 
 import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
+import { canSeePhoto, photoPath } from '../photos.js';
 import { html, sendPage } from '../web.js';
 
 const printScript = readFileSync(new URL('../static/fdl-print.js', import.meta.url));
+const photoScript = readFileSync(new URL('../static/fdl-photo.js', import.meta.url));
 
 export const DIET_LABELS = { vegan: 'Végétalien', vegetarian: 'Végétarien', pescetarian: 'Pescétarien', omnivore: 'Omnivore' };
 export const SEASON_LABELS = { spring: 'Printemps', summer: 'Été', autumn: 'Automne', winter: 'Hiver' };
@@ -98,6 +101,7 @@ export function recipeArticle(recipe, banner = '') {
   const published = recipe.publishedAt?.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
   return html`<article>
 ${banner}<h1>${recipe.title}</h1>
+${recipe.photo ? html`<figure><img src="/photo?f=${recipe.photo.file}" alt="${recipe.title}"><figcaption>Photo : ${recipe.photo.credit}</figcaption></figure>` : ''}
 <p>Par ${author(recipe.author)}</p>
 ${recipe.rating === undefined ? '' : html`<p>${recipe.rating ? ratingText(recipe.rating) : 'Pas encore de note'}</p>`}
 <ul class="facts">
@@ -119,8 +123,31 @@ ${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
 <script src="/static/fdl-print.js"></script>`;
 }
 
-export function catalogueRoutes(pool) {
+export function catalogueRoutes(pool, config) {
   return {
+    'GET /photo': async (request, response) => {
+      const file = new URL(request.url, 'http://x').searchParams.get('f') ?? '';
+      const { accountId, role } = request.session;
+      const staff = role === 'moderator' || role === 'admin';
+      let bytes = null;
+      // Format and rights are checked before any disk access; the file may still be gone.
+      if (await canSeePhoto(pool, file, { accountId, staff })) {
+        bytes = await readFile(photoPath(config.dataDir, file)).catch((error) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        });
+      }
+      if (!bytes) {
+        return show(response, 404, 'Photo introuvable', html`<h1>Photo introuvable</h1>
+<p>Cette photo n'existe pas ou n'est plus visible.</p>`);
+      }
+      response.writeHead(200, {
+        'content-type': 'image/jpeg', 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400',
+        'content-length': bytes.length,
+      });
+      response.end(bytes);
+    },
+
     'GET /': async (request, response) => {
       const rows = await Promise.all(ROWS(currentSeason()).map(async ([title, filters, link]) => [
         title, (await searchRecipes(pool, filters, { limit: 6 })).items, link,
@@ -186,6 +213,11 @@ ${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}`
     'GET /static/fdl-print.js': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' });
       response.end(printScript);
+    },
+
+    'GET /static/fdl-photo.js': (request, response) => {
+      response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' });
+      response.end(photoScript);
     },
   };
 }

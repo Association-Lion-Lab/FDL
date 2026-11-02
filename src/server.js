@@ -6,6 +6,7 @@ import { LATEST_SCHEMA_VERSION, createPool, migrate, readSchemaVersion } from '.
 import { createApp, sendError, sendJson } from './http.js';
 import { createLimiter } from './ratelimit.js';
 import { passkeyRoutes } from './passkeys.js';
+import { sweepPhotos } from './photos.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
@@ -76,9 +77,9 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...securityRoutes(pool, config, { limiter }),
     ...passkeyRoutes(pool, config, passkeyLib, { limiter, securityLog }),
     ...adminRoutes(pool, config, { limiter, securityLog }),
-    ...catalogueRoutes(pool),
+    ...catalogueRoutes(pool, config),
     ...contributionRoutes(pool, config, { limiter }),
-    ...moderationRoutes(pool),
+    ...moderationRoutes(pool, config),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);
@@ -130,6 +131,8 @@ export async function main(env = process.env) {
         : `Base de données injoignable ou refusée : ${error.code ?? 'inconnu'}`
     );
   }
+
+  await sweepPhotos(pool, config.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
 
   const server = createApp({ routes: buildRoutes(pool, console.error, config), before: buildBefore(pool, config) });
   try {

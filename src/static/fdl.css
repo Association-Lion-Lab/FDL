@@ -12,4 +12,6 @@ header label, header button { margin-top: 0; }
 .cards { list-style: none; padding: 0; }
 .cards li { margin-bottom: 0.75rem; }
 .cards span { display: block; font-size: 0.9rem; }
+figure img, img.preview { max-width: 100%; height: auto; }
+img.preview { max-height: 12rem; }
 @media print { header, button { display: none; } }

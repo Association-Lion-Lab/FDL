@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { saveDraft, submitVersion } from '../src/contributions.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
+import { photoPath } from '../src/photos.js';
 import { publishVersion } from '../src/recipes.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
 import { openSession } from '../src/sessions.js';
@@ -161,6 +167,110 @@ describe('catalogue pages', () => {
     const second = await page(href);
     assert.equal(second.text.match(/Recette numéro/g).length, 5);
     assert.ok(!second.text.includes('Page suivante'));
+  });
+});
+
+describe('recipe photos', () => {
+  const FILE = 'a'.repeat(64);
+  const bytes = Buffer.from('not really a jpeg');
+  const as = async (id, role = 'member') => {
+    if (role !== 'member') {
+      await pool.query('UPDATE accounts SET role = $2 WHERE id = $1', [id, role]);
+      await pool.query("INSERT INTO passkeys (id, account_id, public_key, counter, name) VALUES ($1, $2, '\\x01', 0, 'k')", [`k${id}`, id]);
+    }
+    return `fdl_session=${await openSession(pool, id, { mfaOk: true })}`;
+  };
+  const photo = { file: FILE, credit: 'Léa' };
+  const photoGet = async (file, who = cookie) => {
+    const response = await get(`/photo?f=${file}`, who);
+    return { response, status: response.status, body: Buffer.from(await response.arrayBuffer()) };
+  };
+  // A recipe of `author`, saved as draft and optionally submitted; returns its id.
+  const own = async (author, { mode, photoFields = photo } = {}) => {
+    const { id } = await saveDraft(pool, { authorId: author, draft: recipe({ photo: photoFields }) });
+    if (mode) await submitVersion(pool, { recipeId: id, authorId: author, mode, dataDir: config.dataDir });
+    return id;
+  };
+
+  beforeEach(async () => {
+    config.dataDir = await mkdtemp(join(tmpdir(), 'fdl-cat-'));
+    await mkdir(join(config.dataDir, 'photos'));
+    await writeFile(photoPath(config.dataDir, FILE), bytes);
+  });
+  afterEach(() => rm(config.dataDir, { recursive: true, force: true }));
+
+  it('shows the photo and its escaped credit on a public recipe, and serves it to members', async () => {
+    const { id } = await publish({ photo: { file: FILE, credit: '<b>x</b>' } });
+    const shown = await page(`/recette?id=${id}`);
+    assert.ok(shown.text.includes(`<img src="/photo?f=${FILE}"`));
+    assert.ok(shown.text.includes('Photo : &lt;b&gt;x&lt;/b&gt;'));
+    assert.ok(!shown.text.includes('<b>x</b>'));
+    const sent = await photoGet(FILE);
+    assert.equal(sent.status, 200);
+    assert.equal(sent.response.headers.get('content-type'), 'image/jpeg');
+    assert.equal(sent.response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(sent.response.headers.get('cache-control'), 'private, max-age=86400');
+    assert.deepEqual(sent.body, bytes);
+  });
+
+  it('shows no figure without a photo', async () => {
+    const { id } = await publish();
+    assert.ok(!(await page(`/recette?id=${id}`)).text.includes('<figure>'));
+  });
+
+  it('requires a session', async () => {
+    await publish({ photo });
+    assert.equal((await get(`/photo?f=${FILE}`, null)).status, 303);
+  });
+
+  it('hides a photo cited only by a draft, private, pending, removed or banned recipe, from other members', async () => {
+    const author = await account();
+    await own(author);
+    assert.equal((await photoGet(FILE)).status, 404, 'draft');
+    const priv = await own(author, { mode: 'private' });
+    assert.equal((await photoGet(FILE)).status, 404, 'private');
+    await pool.query('DELETE FROM recipes WHERE id = $1', [priv]);
+    await own(author, { mode: 'public' });
+    assert.equal((await photoGet(FILE)).status, 404, 'pending');
+    await pool.query('DELETE FROM recipes');
+    const { id } = await publish({ photo }, author);
+    assert.equal((await photoGet(FILE)).status, 200);
+    await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [id]);
+    assert.equal((await photoGet(FILE)).status, 404, 'removed');
+    await pool.query('UPDATE recipes SET removed_at = NULL WHERE id = $1', [id]);
+    await pool.query('UPDATE accounts SET banned_at = now() WHERE id = $1', [author]);
+    assert.equal((await photoGet(FILE)).status, 404, 'banned');
+  });
+
+  it('serves the author their draft, private and pending photos, and a moderator the pending one', async () => {
+    const author = await account();
+    const mine = await as(author);
+    await own(author);
+    assert.equal((await photoGet(FILE, mine)).status, 200, 'draft');
+    await pool.query('DELETE FROM recipes');
+    await own(author, { mode: 'private' });
+    assert.equal((await photoGet(FILE, mine)).status, 200, 'private');
+    await pool.query('DELETE FROM recipes');
+    await own(author, { mode: 'public' });
+    assert.equal((await photoGet(FILE, mine)).status, 200, 'pending');
+    assert.equal((await photoGet(FILE, await as(await account(), 'moderator'))).status, 200, 'moderator');
+    assert.equal((await photoGet(FILE)).status, 404, 'other member');
+  });
+
+  it('answers 404 for malformed names, a missing file and a cited file gone from disk', async () => {
+    await publish({ photo });
+    for (const f of ['../../etc/passwd', '', FILE.toUpperCase(), 'a'.repeat(63)]) {
+      assert.equal((await photoGet(encodeURIComponent(f))).status, 404, f);
+    }
+    assert.equal((await get('/photo', cookie)).status, 404);
+    await rm(photoPath(config.dataDir, FILE));
+    assert.equal((await photoGet(FILE)).status, 404);
+  });
+
+  it('serves the form script', async () => {
+    const response = await get('/static/fdl-photo.js');
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /^text\/javascript/);
   });
 });
 

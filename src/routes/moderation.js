@@ -1,4 +1,5 @@
 import { decide, getVersion, listQueue } from '../moderation.js';
+import { sweepPhotos } from '../photos.js';
 import { html, readBody, redirect } from '../web.js';
 import { field } from './auth.js';
 import { recipeArticle, show } from './catalogue.js';
@@ -25,7 +26,7 @@ ${Object.entries(ids).map(([name, value]) => html`<input type="hidden" name="${n
 <button type="submit">${label}</button>
 </form>`;
 
-export function moderationRoutes(pool) {
+export function moderationRoutes(pool, config) {
   const staffOnly = (handler) => (request, response) =>
     request.session.role === 'moderator' || request.session.role === 'admin' ? handler(request, response) : deny(response);
 
@@ -68,7 +69,11 @@ ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.
       const needsVersion = kind === 'accept' || kind === 'reject';
       if (!id || (needsVersion && !version) || (kind === 'dismiss' && !reportId)) return message(response, 404, 'Élément introuvable');
       const result = await decide(pool, { moderatorId: request.session.accountId, kind, recipeId: id, version, reportId, reason: field(body, 'motif') });
-      if (result.ok) return redirect(response, '/moderation');
+      if (result.ok) {
+        // A removed recipe stops citing its photos; the sweep frees them. Its failure must not undo the decision.
+        if (kind === 'remove') await sweepPhotos(pool, config?.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
+        return redirect(response, '/moderation');
+      }
       if (result.error === 'already_done') return message(response, 409, 'Déjà traitée');
       if (result.error === 'not_found') return message(response, 404, 'Élément introuvable');
       return show(response, 400, 'Motif obligatoire', html`<h1>Motif obligatoire</h1>

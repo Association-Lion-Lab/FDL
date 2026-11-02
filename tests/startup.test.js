@@ -115,6 +115,8 @@ test('configuration valide : /ready répond 200', { timeout: TIMEOUT }, async ()
           if (status !== 200) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         assert.equal(status, 200, run.stderr);
+        // Fresh data dir, no photos/ folder: the startup sweep is silent.
+        assert.ok(!run.stderr.includes('photos :'), run.stderr);
         assert.match(run.stdout, new RegExp(`migrations : 0 → ${LATEST_SCHEMA_VERSION}`));
       } finally {
         run.child.kill();

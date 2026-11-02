@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
+import { access, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { saveDraft, submitVersion } from '../src/contributions.js';
+import { photoPath, savePhoto, sweepPhotos } from '../src/photos.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
 import { decide, listQueue } from '../src/moderation.js';
@@ -126,6 +131,25 @@ describe('decisions', () => {
     const list = (await get('/mes-recettes', author)).text;
     assert.ok(list.includes('&lt;b&gt;non&lt;/b&gt;'));
     assert.ok(!list.includes('<b>non</b>'));
+  });
+
+  it('previews a version photo, and a removal leaves its file to the sweep', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'fdl-mod-'));
+    const saved = config.dataDir;
+    config.dataDir = dataDir;
+    try {
+      const file = await savePhoto(dataDir, Buffer.from('jpeg bytes'));
+      const target = await pending({ photo: { file, credit: 'Léa' } });
+      assert.ok((await get(`/moderation/version?id=${target.id}&version=${target.version}`, mod)).text.includes(`<img src="/photo?f=${file}"`));
+      assert.equal((await post({ kind: 'remove', id: target.id, motif: 'Non' })).status, 303);
+      // The route's own sweep spares a fresh file; a later one deletes it.
+      await access(photoPath(dataDir, file));
+      assert.equal(await sweepPhotos(pool, dataDir, { now: Date.now() + 3600000 }), 1);
+      await assert.rejects(access(photoPath(dataDir, file)), { code: 'ENOENT' });
+    } finally {
+      config.dataDir = saved;
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   it('removes a reported published recipe and closes its reports', async () => {

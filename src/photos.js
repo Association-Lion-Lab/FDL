@@ -2,6 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+// Cyclic with recipes.js (which needs PHOTO_FILE); fine, VISIBLE is only read at call time.
+import { VISIBLE } from './recipes.js';
+
 export const PHOTO_FILE = /^[0-9a-f]{64}$/;
 const MAX_SIDE = 8000;
 
@@ -52,6 +55,23 @@ export async function sweepPhotos(db, dataDir, { graceMs = 600000, now = Date.no
     }
   }
   return deleted;
+}
+
+// Who may fetch a photo: anyone for a visible published version; the author for any of their own
+// (draft or version, recipe not removed); staff for any version.
+export async function canSeePhoto(db, file, { accountId, staff }) {
+  if (typeof file !== 'string' || !PHOTO_FILE.test(file)) return false;
+  const pub = await db.query(`SELECT 1 ${VISIBLE} AND v.photo = $1 LIMIT 1`, [file]);
+  if (pub.rowCount) return true;
+  const own = await db.query(
+    `SELECT 1 FROM recipes r WHERE
+       (r.removed_at IS NULL AND r.author_id = $2 AND (r.draft->'photo'->>'file' = $1
+          OR EXISTS (SELECT 1 FROM recipe_versions w WHERE w.recipe_id = r.id AND w.photo = $1)))
+       OR ($3 AND EXISTS (SELECT 1 FROM recipe_versions w WHERE w.recipe_id = r.id AND w.photo = $1))
+     LIMIT 1`,
+    [file, accountId, staff]
+  );
+  return own.rowCount > 0;
 }
 // SOF0-2, DHT, DQT, DRI, SOS.
 const KEEP = new Set([0xc0, 0xc1, 0xc2, 0xc4, 0xdb, 0xdd, 0xda]);
