@@ -1,4 +1,6 @@
 const MAX_SIDE = 8000;
+// SOF0-2, DHT, DQT, DRI, SOS.
+const KEEP = new Set([0xc0, 0xc1, 0xc2, 0xc4, 0xdb, 0xdd, 0xda]);
 
 // Drop APPn, COM and anything after EOI. Returns null unless the input is a well-formed JPEG.
 export function stripJpeg(buffer) {
@@ -18,23 +20,26 @@ export function stripJpeg(buffer) {
       kept.push(Buffer.from([0xff, 0xd9]));
       return Buffer.concat(kept);
     }
-    if (code === 0x01 || (code >= 0xd0 && code <= 0xd7)) {
+    if (code >= 0xd0 && code <= 0xd7) {
       kept.push(Buffer.from([0xff, code]));
       continue;
     }
+    // Allowlist: anything else (JPGn, reserved, lossless/arithmetic frames) could hide data or not render.
+    const drop = (code >= 0xe0 && code <= 0xef) || code === 0xfe;
+    if (!drop && !KEEP.has(code)) return null;
+    if (code === 0xda && !sawFrame) return null;
     if (pos + 2 > buffer.length) return null;
     const length = buffer.readUInt16BE(pos);
     if (length < 2 || pos + length > buffer.length) return null;
     const end = pos + length;
-    const isFrame = code >= 0xc0 && code <= 0xcf && code !== 0xc4 && code !== 0xc8 && code !== 0xcc;
-    if (isFrame) {
+    if (code <= 0xc2 && code >= 0xc0) {
       if (length < 8) return null;
       const height = buffer.readUInt16BE(pos + 3);
       const width = buffer.readUInt16BE(pos + 5);
       if (!height || !width || height > MAX_SIDE || width > MAX_SIDE) return null;
       sawFrame = true;
     }
-    if (!(code >= 0xe0 && code <= 0xef) && code !== 0xfe) kept.push(Buffer.concat([Buffer.from([0xff, code]), buffer.subarray(pos, end)]));
+    if (!drop) kept.push(Buffer.concat([Buffer.from([0xff, code]), buffer.subarray(pos, end)]));
     pos = end;
     if (code === 0xda) {
       sawScan = true;

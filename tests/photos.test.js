@@ -40,6 +40,33 @@ describe('stripJpeg', () => {
       jpeg({ width: 8001 }), jpeg({ height: 0 }),
     ]) assert.equal(stripJpeg(bad), null);
   });
+  it('refuse un segment hors liste blanche (JPGn caché, frame sans perte)', () => {
+    const good = jpeg();
+    const sos = good.indexOf(Buffer.from([0xff, 0xda]));
+    const body = Buffer.from('GPSLatitude', 'latin1');
+    const hidden = Buffer.concat([
+      good.subarray(0, 2), Buffer.from([0xff, 0xf0, 0, body.length + 2]), body, good.subarray(2),
+    ]);
+    assert.ok(hidden.indexOf('GPSLatitude') !== -1);
+    assert.equal(stripJpeg(hidden), null);
+    const lossless = Buffer.from(good);
+    lossless[lossless.indexOf(Buffer.from([0xff, 0xc0])) + 1] = 0xc3;
+    assert.equal(stripJpeg(lossless), null);
+    assert.ok(sos > 0);
+  });
+  it('refuse un SOS avant tout SOF', () => {
+    const good = jpeg({ exif: false });
+    const sof = good.indexOf(Buffer.from([0xff, 0xc0]));
+    const sos = good.indexOf(Buffer.from([0xff, 0xda]));
+    const eoi = good.length - 2;
+    const swapped = Buffer.concat([
+      good.subarray(0, sof), good.subarray(sos, eoi), good.subarray(sof, sos), good.subarray(eoi),
+    ]);
+    assert.equal(stripJpeg(swapped), null);
+  });
+  it('accepte exactement 8000 x 8000', () => {
+    assert.ok(stripJpeg(jpeg({ width: 8000, height: 8000 })));
+  });
   it('refuse une longueur de segment qui dépasse le fichier', () => {
     const b = Buffer.from(jpeg());
     b.writeUInt16BE(0xffff, 4); // longueur de APP0
