@@ -9,6 +9,7 @@ import { saveDraft, submitVersion } from '../src/contributions.js';
 import { photoPath, savePhoto, sweepPhotos } from '../src/photos.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
+import { SEEN } from '../src/comments.js';
 import { decide, listQueue } from '../src/moderation.js';
 import { getRecipe } from '../src/recipes.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
@@ -289,6 +290,7 @@ describe('comment moderation', () => {
       'INSERT INTO comments (recipe_id, author_id, body, status) VALUES ($1, $2, $3, $4) RETURNING id', [target.id, author.id, body, status]);
     return { recipeId: target.id, id: rows[0].id };
   }
+  const vu = async (id) => (await pool.query(`SELECT ${SEEN} AS s FROM comments c WHERE c.id = $1`, [id])).rows[0].s;
   const commentReport = async (c) => (await pool.query(
     "INSERT INTO reports (recipe_id, comment_id, reporter_id, category, detail) VALUES ($1, $2, $3, 'spam', 'sig <i>c</i>') RETURNING id",
     [c.recipeId, c.id, mod.id])).rows[0].id;
@@ -313,7 +315,7 @@ describe('comment moderation', () => {
 
   it('rejects a comment: the author sees the reason on the recipe page, not on /mes-recettes', async () => {
     const c = await comment();
-    const sent = await post({ kind: 'comment_reject', commentaire: String(c.id), motif: 'Hors sujet ici' });
+    const sent = await post({ kind: 'comment_reject', commentaire: String(c.id), vu: await vu(c.id), motif: 'Hors sujet ici' });
     assert.equal(sent.status, 303);
     assert.ok((await get(`/recette?id=${c.recipeId}`, author)).text.includes('Refusé. Motif : Hors sujet ici'));
     assert.ok(!(await get('/mes-recettes', author)).text.includes('Hors sujet ici'));
@@ -321,7 +323,7 @@ describe('comment moderation', () => {
 
   it('accepts and removes a comment; dismiss leaves the comment published', async () => {
     const c = await comment();
-    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: 'ok' })).status, 303);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), vu: await vu(c.id), motif: 'ok' })).status, 303);
     const reportId = await commentReport(c);
     assert.equal((await post({ kind: 'dismiss', id: String(c.recipeId), report: String(reportId), motif: 'rien' })).status, 303);
     const status = async () => (await pool.query('SELECT status FROM comments WHERE id = $1', [c.id])).rows[0].status;
@@ -332,7 +334,8 @@ describe('comment moderation', () => {
     assert.ok(mine.includes('ok'));
     assert.equal((await pool.query('SELECT comment_id FROM moderation_decisions WHERE decision = $1', ['report_dismissed'])).rows[0].comment_id, String(c.id));
     assert.equal((await pool.query('SELECT closed_at FROM reports WHERE id = $1', [reportId])).rows[0].closed_at !== null, true);
-    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), motif: 'retiré' })).status, 303);
+    assert.equal((await pool.query("SELECT detail FROM admin_log WHERE action = 'report_dismissed'")).rows[0].detail.commentId, Number(c.id));
+    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), vu: await vu(c.id), motif: 'retiré' })).status, 303);
     assert.equal(await status(), 'removed');
   });
 
@@ -356,7 +359,18 @@ describe('comment moderation', () => {
   it('answers 409 on a comment whose recipe was removed', async () => {
     const c = await comment('published');
     await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [c.recipeId]);
-    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), motif: 'x' })).status, 409);
+    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), vu: await vu(c.id), motif: 'x' })).status, 409);
+  });
+
+  it('refuses a decision on text edited since the queue loaded', async () => {
+    const c = await comment();
+    const old = (await listQueue(pool)).pendingComments[0].seen;
+    await pool.query("UPDATE comments SET body = 'Nouveau texte', edited_at = now() WHERE id = $1", [c.id]);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), vu: old, motif: 'ok' })).status, 409);
+    const { rows: [after] } = await pool.query('SELECT status, body FROM comments WHERE id = $1', [c.id]);
+    assert.deepEqual([after.status, after.body], ['pending', 'Nouveau texte']);
+    assert.ok((await get('/moderation', mod)).text.includes(`name="vu" value="${await vu(c.id)}"`));
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), vu: await vu(c.id), motif: 'ok' })).status, 303);
   });
 
   it('answers 404 without a comment, 409 when already decided, 400 without a reason', async () => {
@@ -364,9 +378,11 @@ describe('comment moderation', () => {
     for (const commentaire of [undefined, '', 'abc', '99999999999999999999']) {
       assert.equal((await post({ kind: 'comment_accept', ...(commentaire === undefined ? {} : { commentaire }), motif: 'x' })).status, 404);
     }
-    assert.equal((await post({ kind: 'comment_accept', commentaire: '999999', motif: 'x' })).status, 404);
-    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: '' })).status, 400);
-    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: 'ok' })).status, 303);
-    assert.equal((await post({ kind: 'comment_reject', commentaire: String(c.id), motif: 'non' })).status, 409);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: '999999', vu: '2020-01-01T00:00:00.000000Z', motif: 'x' })).status, 404);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: 'x' })).status, 404);
+    const seen = await vu(c.id);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), vu: seen, motif: '' })).status, 400);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), vu: seen, motif: 'ok' })).status, 303);
+    assert.equal((await post({ kind: 'comment_reject', commentaire: String(c.id), vu: seen, motif: 'non' })).status, 409);
   });
 });

@@ -1,3 +1,5 @@
+import { SEEN } from './comments.js';
+
 const ACTIONS = {
   accept: ['accepted', 'recipe_accepted'],
   reject: ['rejected', 'recipe_rejected'],
@@ -20,13 +22,13 @@ export async function listQueue(db) {
      WHERE p.closed_at IS NULL AND p.comment_id IS NULL AND r.removed_at IS NULL ORDER BY p.created_at, p.id`
   );
   const { rows: pendingComments } = await db.query(
-    `SELECT c.id, c.recipe_id AS "recipeId", c.body, c.flags, c.created_at, a.display_name AS author, v.title
+    `SELECT c.id, c.recipe_id AS "recipeId", c.body, c.flags, c.created_at, ${SEEN} AS seen, a.display_name AS author, v.title
      FROM comments c JOIN recipes r ON r.id = c.recipe_id JOIN accounts a ON a.id = c.author_id
      LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
      WHERE c.status = 'pending' AND r.removed_at IS NULL ORDER BY c.created_at, c.id`
   );
   const { rows: commentReports } = await db.query(
-    `SELECT p.id, p.comment_id AS "commentId", p.recipe_id AS "recipeId", p.category, p.detail, p.created_at, c.body,
+    `SELECT p.id, p.comment_id AS "commentId", p.recipe_id AS "recipeId", p.category, p.detail, p.created_at, c.body, ${SEEN} AS seen,
        coalesce(v.title, 'Sans titre') AS title, a.display_name AS reporter
      FROM reports p JOIN comments c ON c.id = p.comment_id JOIN recipes r ON r.id = p.recipe_id
      LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
@@ -93,10 +95,10 @@ export async function decide(db, { moderatorId, kind, recipeId, version = null, 
       await client.query('UPDATE recipes SET removed_at = now(), removed_reason = $2 WHERE id = $1', [recipeId, text]);
       await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE recipe_id = $1 AND closed_at IS NULL', [recipeId, id]);
     } else {
-      await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE id = $1', [reportId, id]);
+      await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE id = $1 AND closed_at IS NULL', [reportId, id]);
     }
     await client.query('INSERT INTO admin_log (actor_id, action, target, detail) VALUES ($1, $2, $3, $4)',
-      [moderatorId, action, String(recipeId), JSON.stringify({ recipeId: Number(recipeId), version: version === null ? null : Number(version), reason: text })]);
+      [moderatorId, action, String(recipeId), JSON.stringify({ recipeId: Number(recipeId), version: version === null ? null : Number(version), ...(commentId ? { commentId: Number(commentId) } : {}), reason: text })]);
     await client.query('COMMIT');
     return { ok: true };
   } catch (error) {

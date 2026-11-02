@@ -62,15 +62,15 @@ ${pendingComments.length ? html`<ul>${pendingComments.map((c) => html`<li><p>${c
 sur <a href="/recette?id=${c.recipeId}">${c.title ?? 'Sans titre'}</a>
 par ${c.author}, le ${when(c.created_at)}
 ${c.flags.length ? html`<span>Signalé automatiquement : ${c.flags.map((f) => FLAGS[f] ?? f).join(', ')}</span>` : ''}
-${decisionForm('comment_accept', 'Accepter', { commentaire: c.id })}
-${decisionForm('comment_reject', 'Refuser', { commentaire: c.id })}</li>
+${decisionForm('comment_accept', 'Accepter', { commentaire: c.id, vu: c.seen })}
+${decisionForm('comment_reject', 'Refuser', { commentaire: c.id, vu: c.seen })}</li>
 `)}</ul>` : html`<p>Aucun commentaire en attente.</p>`}
 <h2>Signalements de commentaires</h2>
 ${commentReports.length ? html`<ul>${commentReports.map((p) => html`<li>${CATEGORIES[p.category]} : ${p.detail}
 <p>${p.body}</p>
 sur <a href="/recette?id=${p.recipeId}">${p.title}</a>
 par ${p.reporter ?? 'un compte supprimé'}, le ${when(p.created_at)}
-${decisionForm('comment_remove', 'Retirer le commentaire', { commentaire: p.commentId })}
+${decisionForm('comment_remove', 'Retirer le commentaire', { commentaire: p.commentId, vu: p.seen })}
 ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.id })}</li>
 `)}</ul>` : html`<p>Aucun signalement de commentaire ouvert.</p>`}`);
     }),
@@ -93,8 +93,9 @@ ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.
       const kind = field(body, 'kind');
       if (kind.startsWith('comment_')) {
         const commentId = parseId(field(body, 'commentaire'));
-        if (!commentId) return message(response, 404, 'Élément introuvable');
-        const outcome = await decideComment(pool, { moderatorId: request.session.accountId, kind: kind.slice(8), commentId, reason: field(body, 'motif') });
+        const seen = field(body, 'vu');
+        if (!commentId || !seen) return message(response, 404, 'Élément introuvable');
+        const outcome = await decideComment(pool, { moderatorId: request.session.accountId, kind: kind.slice(8), commentId, seen, reason: field(body, 'motif') });
         return outcome.ok ? redirect(response, '/moderation') : failure(response, outcome.error);
       }
       const needsVersion = kind === 'accept' || kind === 'reject';

@@ -69,7 +69,10 @@ const DECISIONS = {
 };
 
 // Same shape as moderation.decide: lock the row, check its state, write the decision, then the log.
-export async function decideComment(db, { moderatorId, kind, commentId, reason }) {
+// The version of the text a moderator saw: full-precision UTC text, never round-tripped through a JS Date.
+export const SEEN = `to_char(coalesce(c.edited_at, c.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+export async function decideComment(db, { moderatorId, kind, commentId, seen, reason }) {
   const [decision, action, from, to] = Object.hasOwn(DECISIONS, kind) ? DECISIONS[kind] : [];
   const text = typeof reason === 'string' ? reason.trim() : '';
   if (!decision || text.length < 1 || text.length > 500) return { error: 'bad_reason' };
@@ -78,15 +81,17 @@ export async function decideComment(db, { moderatorId, kind, commentId, reason }
   try {
     await client.query('BEGIN');
     const { rows: [row] } = await client.query(
-      'SELECT c.recipe_id, c.status, r.removed_at FROM comments c JOIN recipes r ON r.id = c.recipe_id WHERE c.id = $1 FOR UPDATE OF c', [commentId]);
+      `SELECT c.recipe_id, c.status, r.removed_at, ${SEEN} AS seen FROM comments c JOIN recipes r ON r.id = c.recipe_id
+       WHERE c.id = $1 FOR UPDATE OF c FOR SHARE OF r`, [commentId]);
     if (!row) return await end('not_found');
-    if (row.status !== from || row.removed_at) return await end('already_done');
+    // An edit since the queue loaded changes the text: the moderator never saw it.
+    if (row.status !== from || row.removed_at || row.seen !== seen) return await end('already_done');
     const { rows: [{ id }] } = await client.query(
       'INSERT INTO moderation_decisions (recipe_id, comment_id, moderator_id, decision, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [row.recipe_id, commentId, moderatorId, decision, text]);
     // An accepted comment keeps no reason; a refused or removed one shows it to its author.
     await client.query('UPDATE comments SET status = $2, reason = $3 WHERE id = $1', [commentId, to, kind === 'accept' ? null : text]);
-    if (kind === 'remove') await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE comment_id = $1 AND closed_at IS NULL', [commentId, id]);
+    if (kind !== 'accept') await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE comment_id = $1 AND closed_at IS NULL', [commentId, id]);
     await client.query('INSERT INTO admin_log (actor_id, action, target, detail) VALUES ($1, $2, $3, $4)',
       [moderatorId, action, String(commentId), JSON.stringify({ recipeId: Number(row.recipe_id), commentId: Number(commentId), reason: text })]);
     await client.query('COMMIT');
@@ -119,6 +124,7 @@ export async function getOwnComment(db, { commentId, authorId }) {
     "SELECT id, recipe_id, body, status FROM comments WHERE id = $1 AND author_id = $2 AND status <> 'removed'",
     [commentId, authorId]
   );
+  if (row && !(await recipeVisible(db, row.recipe_id))) return null;
   return row ? { id: Number(row.id), recipeId: Number(row.recipe_id), body: row.body, status: row.status } : null;
 }
 

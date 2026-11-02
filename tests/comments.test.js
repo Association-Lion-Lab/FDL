@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { migrate } from '../src/db.js';
-import { addComment, COMMENT_INVALID, decideComment, deleteComment, editComment, listComments, visibleComment } from '../src/comments.js';
+import { addComment, COMMENT_INVALID, decideComment, deleteComment, editComment, getOwnComment, listComments, SEEN, visibleComment } from '../src/comments.js';
 import { listMine } from '../src/contributions.js';
 import { publishVersion } from '../src/recipes.js';
 import { createTestDatabase } from './helpers/db.js';
@@ -212,7 +212,9 @@ describe('decideComment', () => {
     if (status !== 'pending') await pool.query('UPDATE comments SET status = $2 WHERE id = $1', [id, status]);
     return { recipeId, id };
   };
-  const decideOn = async (kind, commentId, reason = 'Parce que.') => decideComment(pool, { moderatorId: await account(), kind, commentId, reason });
+  const seenOf = async (id) => (await pool.query(`SELECT ${SEEN} AS s FROM comments c WHERE c.id = $1`, [id])).rows[0]?.s;
+  const decideOn = async (kind, commentId, reason = 'Parce que.', seen) =>
+    decideComment(pool, { moderatorId: await account(), kind, commentId, seen: seen ?? await seenOf(commentId), reason });
   const logs = async () => (await pool.query('SELECT * FROM admin_log ORDER BY id')).rows;
 
   it('accepts, rejects and removes, recording decision and log', async () => {
@@ -238,6 +240,23 @@ describe('decideComment', () => {
     await decideOn('remove', a.id);
     const { rows: [r] } = await pool.query('SELECT closed_at, decision_id FROM reports WHERE comment_id = $1', [a.id]);
     assert.ok(r.closed_at && r.decision_id);
+  });
+
+  it('closes the open reports of a rejected comment', async () => {
+    const a = await pendingComment();
+    await pool.query("INSERT INTO reports (recipe_id, comment_id, reporter_id, category) VALUES ($1, $2, $3, 'spam')", [a.recipeId, a.id, await account()]);
+    await decideOn('reject', a.id);
+    const { rows: [r] } = await pool.query('SELECT closed_at, decision_id FROM reports WHERE comment_id = $1', [a.id]);
+    assert.ok(r.closed_at && r.decision_id);
+  });
+
+  it('answers already_done when the text changed since the moderator saw it', async () => {
+    const a = await pendingComment();
+    const old = await seenOf(a.id);
+    await pool.query("UPDATE comments SET body = 'Autre', edited_at = now() WHERE id = $1", [a.id]);
+    assert.deepEqual(await decideOn('accept', a.id, 'Ok', old), { error: 'already_done' });
+    assert.equal((await row(a.id)).status, 'pending');
+    assert.deepEqual(await decideOn('accept', a.id, 'Ok'), { ok: true });
   });
 
   it('answers already_done, not_found and bad_reason without writing', async () => {

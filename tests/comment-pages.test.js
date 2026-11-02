@@ -202,6 +202,8 @@ describe('edit and delete', () => {
     assert.equal((await get('/recette/commentaire/modifier?id=abc')).status, 404);
     const removed = await seed(me.id, 'Parti', 'removed');
     assert.equal((await get(`/recette/commentaire/modifier?id=${removed}`)).status, 404);
+    await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [recipeId]);
+    assert.equal((await get(`/recette/commentaire/modifier?id=${id}`)).status, 404);
   });
 
   it('updates for the author and 404s for another account', async () => {
