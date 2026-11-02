@@ -68,6 +68,8 @@ Ces erreurs JSON valent pour toute route (forme ci-dessus) :
 | --- | --- | --- |
 | 400 | `bad_request` | type de contenu autre que formulaire ou JSON, ou JSON invalide |
 | 400 | `passkey_failed` | étape de clé d'accès refusée (session, défi, signature ou nom invalide) |
+| 401 | `unauthorized` | chemin `/api/` sans session complète valide |
+| 403 | `forbidden` | chemin `/api/` : `moderator` ou `admin` sans clé d'accès |
 | 403 | `bad_origin` | `POST` dont l'en-tête `Origin` est absent ou différent de `FDL_ORIGIN` |
 | 403 | `elevation_required` | ajout d'une clé d'accès (`/cles/inscription/*`) par un `admin` qui a déjà une clé, sans confirmation récente |
 | 413 | `payload_too_large` | corps de plus de 16 Kio |
@@ -77,7 +79,7 @@ Les pages HTML répondent à la même limite d'essais par une page « Trop de te
 
 ## Accès
 
-Ces routes servent des pages HTML en français, sauf mention JSON. Le seul cookie est `fdl_session` (`HttpOnly; Secure; SameSite=Lax; Path=/`). Sans session complète, toute route hors liste publique renvoie vers `/connexion` (ou `/connexion/verification` si la seconde étape manque). Un `moderator` ou `admin` sans clé d'accès n'atteint que `/compte/securite` et `/cles/*` : tout le reste renvoie vers `/compte/securite?obligatoire=1`.
+Ces routes servent des pages HTML en français, sauf mention JSON. Le seul cookie est `fdl_session` (`HttpOnly; Secure; SameSite=Lax; Path=/`). Sans session complète, toute route hors liste publique renvoie vers `/connexion` (ou `/connexion/verification` si la seconde étape manque). Un `moderator` ou `admin` sans clé d'accès n'atteint que `/compte/securite` et `/cles/*` : tout le reste renvoie vers `/compte/securite?obligatoire=1`. Les chemins `/api/` ne redirigent jamais : `401` JSON `unauthorized` sans session valide, `403` JSON `forbidden` pour le personnel sans clé d'accès.
 
 Publiques : `GET`/`POST /connexion`, `GET`/`POST /connexion/verification`, `GET`/`POST /inscription?code=…`, `GET`/`POST /reinitialisation?code=…`, `POST /deconnexion`, `POST /cles/connexion/options` et `/cles/connexion/verification` (JSON, session à moitié ouverte), et `/static/*`. Un lien expiré, utilisé ou révoqué répond `410` « Lien expiré ». Au-delà de 10 essais par quart d'heure (par adresse IP, et par e-mail pour `/connexion`), `429`.
 
@@ -158,14 +160,14 @@ Sémantique des filtres :
 
 ## API Manger! (`/api/v1`)
 
-Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integration-manger` ; l'import et la vérification côté Manger! viennent ensuite). Session complète exigée pendant la bêta : sans elle, `401` de code `unauthorized` (jamais de redirection). Toutes les réponses portent `cache-control: no-store` (elles dépendent du compte).
+Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integration-manger` ; l'import et la vérification côté Manger! viennent ensuite). Session complète exigée pendant la bêta : sans elle, `401` de code `unauthorized` (jamais de redirection) ; un `moderator` ou `admin` sans clé d'accès reçoit `403` de code `forbidden`. Toutes les réponses portent `cache-control: no-store` (elles dépendent du compte).
 
 | Route | Réponse |
 | --- | --- |
 | `GET /api/v1/recettes` | mêmes paramètres que `/recherche` (`q`, `duree`, `regime`, `univers`, `saison`, `apres`), plus `limite` (1 à 50, 20 par défaut ; une valeur invalide vaut la valeur par défaut). `200 { items: [{ id, title, minutes, diet, author }], next }` ; curseur invalide → `400` `bad_cursor` |
 | `GET /api/v1/recette?id=<id>` | `200` projection de la version publiée (ou, pour son auteur, de sa version privée) ; identifiant invalide, inconnu ou recette privée d'un autre → `404` « Recette introuvable. » ; recette retirée → `410` `removed` « Recette retirée par la modération. » |
 | `GET /api/v1/etat?ids=1,2,3` | 1 à 100 identifiants distincts, séparés par des virgules. `200 { "1": { "state": "published", "version": 3 }, "2": { "state": "removed" } }`, clés = identifiants fournis ; liste vide, élément invalide ou hors limites, doublon ou plus de 100 → `400` `bad_request` |
-| `GET /api/v1/mes-recettes` | `200 { items: [{ id, title, state, version }] }` : recettes du compte en `published` (y compris avec une nouvelle version en attente) ou `private` ; ni brouillon, ni recette en attente, refusée ou retirée |
+| `GET /api/v1/mes-recettes` | `200 { items: [{ id, title, state, version }] }` : recettes du compte dont l'état API est `published` (y compris avec une nouvelle version en attente) ou `private` (y compris si une soumission publique attend ou a été refusée) ; ni brouillon, ni recette retirée |
 
 États : `published` (version publiée), `private` (version privée du demandeur), `removed` (retirée par la modération, y compris par bannissement de l'auteur), `not_found` (inconnue, ou privée d'un autre). `hidden` (masquage temporaire) est réservé : il n'est jamais renvoyé aujourd'hui. Seul `removed` supprime une copie Manger! ; `not_found`, une panne ou `hidden` ne suppriment rien.
 

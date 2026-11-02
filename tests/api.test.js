@@ -118,6 +118,7 @@ describe('/api/v1', () => {
   it('answers 401 JSON without a session', async () => {
     const response = await get('/api/v1/recettes', null);
     assert.equal(response.status, 401);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal((await response.json()).error.code, 'unauthorized');
   });
 
@@ -194,10 +195,27 @@ describe('/api/v1', () => {
     assert.equal(items.find(({ id }) => String(id) === pending).title, 'Titre publié');
   });
 
+  it('keeps a private recipe listed while its public submission waits', async () => {
+    const id = await submit(me, 'private');
+    const saved = await saveDraft(pool, { recipeId: id, authorId: me, draft: recipe({ title: 'Titre public en attente' }) });
+    await submitVersion(pool, { recipeId: saved.id, authorId: me, mode: 'public', dataDir: tmpdir() });
+    const { items } = await (await get('/api/v1/mes-recettes')).json();
+    assert.deepEqual(items.map(({ id: i, state, version, title }) => [String(i), state, version, title]), [[id, 'private', 1, 'Soupe de légumes']]);
+  });
+
+  it('hides a removed private recipe from strangers', async () => {
+    const other = await account();
+    const id = await submit(other, 'private');
+    await pool.query("UPDATE recipes SET removed_at = now(), removed_reason = 'x' WHERE id = $1", [id]);
+    assert.deepEqual((await recipeStates(pool, [id], me)).get(Number(id)), { state: 'not_found' });
+    assert.deepEqual((await recipeStates(pool, [id], other)).get(Number(id)), { state: 'removed' });
+  });
+
   it('answers 403 JSON to staff without a passkey', async () => {
     await pool.query("UPDATE accounts SET role = 'moderator' WHERE id = $1", [me]);
     const response = await get('/api/v1/recettes');
     assert.equal(response.status, 403);
-    assert.equal((await response.json()).error.code, 'unauthorized');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal((await response.json()).error.code, 'forbidden');
   });
 });

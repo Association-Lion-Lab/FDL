@@ -2,7 +2,7 @@
 export async function recipeStates(db, ids, accountId) {
   const { rows } = await db.query(
     `SELECT r.id, CASE
-         WHEN r.removed_at IS NOT NULL OR (a.banned_at IS NOT NULL AND r.published_version IS NOT NULL) THEN 'removed'
+         WHEN (r.removed_at IS NOT NULL AND (r.published_version IS NOT NULL OR r.author_id = $2)) OR (a.banned_at IS NOT NULL AND r.published_version IS NOT NULL) THEN 'removed'
          WHEN r.visibility = 'public' THEN 'published'
          WHEN r.visibility = 'private' AND r.author_id = $2 THEN 'private'
          ELSE 'not_found' END AS state,
