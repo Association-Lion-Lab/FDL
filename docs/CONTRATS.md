@@ -188,7 +188,7 @@ Les moyennes des notes sont affichées sur la page recette et sur les cartes ; l
 
 Confiance progressive : tant que l'auteur a moins de 3 recettes (non retirées) qui ont au moins une version publiée, chaque version publique passe par un modérateur. Ensuite elle est publiée directement, sauf si un filtre automatique la signale. Filtres : `link` (adresse `http://`, `https://` ou `www.` dans le titre, un ingrédient, une étape ou la provenance), `banned_word` (mot du fichier `mots-interdits.txt`, voir [EXPLOITATION.md](EXPLOITATION.md), comparé sans accents ni casse) et `duplicate` (titre identique, sans accents ni casse, à celui d'une recette visible). Une version signalée attend toujours un modérateur.
 
-Chaque décision de modération a un motif de 1 à 500 caractères, écrit dans `moderation_decisions` et visible par l'auteur sur `/mes-recettes`.
+Chaque décision de modération a un motif de 1 à 500 caractères, écrit dans `moderation_decisions` et visible par l'auteur sur `/mes-recettes`. Un modérateur peut décider sur sa propre recette. Les notes d'un compte banni restent comptées dans les moyennes (décisions du porteur, 2026-11-02).
 
 Actions ajoutées à `admin_log` (journal d'administration, cible = identifiant de la recette, détail = recette, version et motif) : `recipe_accepted`, `recipe_rejected`, `recipe_removed`, `report_dismissed`. L'écran `/admin/univers` ajoute `universe_saved` (cible = identifiant de l'univers).
 
