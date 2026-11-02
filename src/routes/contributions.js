@@ -195,7 +195,8 @@ ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
         // The previous photo comes from the stored recipe, never from the form.
         const own = await getOwnRecipe(pool, { recipeId: id, authorId });
         if (!own || own.state === 'removed') return notFound(response);
-        previous = own.draft?.photo ?? own.latest?.photo ?? null;
+        // Same draft-or-latest rule as GET: a draft without photo means the photo was removed.
+        previous = (own.draft && Object.keys(own.draft).length ? own.draft.photo : own.latest?.photo) ?? null;
       }
       const draft = draftFrom(body);
       let file = previous?.file ?? null;

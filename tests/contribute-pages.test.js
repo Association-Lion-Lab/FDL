@@ -263,6 +263,27 @@ describe('recipe photo', () => {
     assert.equal(await draftPhoto(id), null);
   });
 
+  it("keeps its own photo when photo_file names another account's photo", async () => {
+    await upload([['photo_credit', 'Moi']]);
+    const id = await firstId();
+    const mine = (await draftPhoto(id)).file;
+    await postForm(full('brouillon', {}, [['photo_credit', 'Eve']]), { photo: jpeg({ width: 3 }) }, other);
+    const theirs = (await photos()).map((n) => n.slice(0, -4)).find((f) => f !== mine);
+    await postForm([['id', String(id)], ...full('brouillon', {}, [['photo_file', theirs], ['photo_credit', 'Moi']])]);
+    assert.deepEqual(await draftPhoto(id), { file: mine, credit: 'Moi' });
+  });
+
+  it('keeps a removed photo removed on the next save, even when a published version has one', async () => {
+    const sent = await postForm(full('publier', {}, [['photo_credit', 'Léa'], ['atteste_texte', '1'], ['atteste_photo', '1']]), { photo: jpeg() });
+    assert.equal(sent.status, 303);
+    const recipeId = await firstId();
+    assert.ok((await pool.query('SELECT photo FROM recipe_versions WHERE recipe_id = $1', [recipeId])).rows[0].photo);
+    await postForm([['id', String(recipeId)], ...full('brouillon', {}, [['retirer_photo', '1']])]);
+    assert.equal(await draftPhoto(recipeId), null);
+    await postForm([['id', String(recipeId)], ...full('brouillon', {}, [['photo_credit', 'Léa']])]);
+    assert.equal(await draftPhoto(recipeId), null);
+  });
+
   it('refuses a non-JPEG file with 400, keeps the title and stores nothing', async () => {
     const sent = await upload([], Buffer.from('<html></html>'));
     assert.equal(sent.status, 400);

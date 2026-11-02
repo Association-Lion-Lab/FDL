@@ -54,11 +54,8 @@ function httpError(status, code, message) {
   return Object.assign(new Error(message), { status, code, expose: true });
 }
 
-export async function readBody(request, { max = 16 * 1024 } = {}) {
-  const type = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-  if (type !== 'application/x-www-form-urlencoded' && type !== 'application/json') {
-    throw httpError(400, 'bad_request', 'Type de contenu non pris en charge.');
-  }
+// The whole request body, refused with 413 as soon as it passes `max`.
+async function readRaw(request, max) {
   const declared = Number(request.headers['content-length']);
   if (declared > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
   const chunks = [];
@@ -68,7 +65,15 @@ export async function readBody(request, { max = 16 * 1024 } = {}) {
     if (size > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
     chunks.push(chunk);
   }
-  const text = Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
+}
+
+export async function readBody(request, { max = 16 * 1024 } = {}) {
+  const type = (request.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/x-www-form-urlencoded' && type !== 'application/json') {
+    throw httpError(400, 'bad_request', 'Type de contenu non pris en charge.');
+  }
+  const text = (await readRaw(request, max)).toString('utf8');
   // PostgreSQL text cannot hold NUL: refuse it here rather than fail with a 500 in a query.
   const nul = () => httpError(400, 'bad_request', 'Requête invalide.');
   if (type === 'application/x-www-form-urlencoded') {
@@ -97,19 +102,11 @@ export async function readForm(request, { max = 16 * 1024 } = {}) {
   const type = header.split(';')[0].trim().toLowerCase();
   if (type === 'application/x-www-form-urlencoded') return { body: await readBody(request, { max }), files: new Map() };
   if (type !== 'multipart/form-data') throw httpError(400, 'bad_request', 'Type de contenu non pris en charge.');
-  const declared = Number(request.headers['content-length']);
-  if (declared > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
-    chunks.push(chunk);
-  }
+  const buffer = await readRaw(request, max);
   const bad = () => httpError(400, 'bad_request', 'Requête invalide.');
   let data;
   try {
-    data = await new Request('http://x', { method: 'POST', headers: { 'content-type': header }, body: Buffer.concat(chunks) }).formData();
+    data = await new Request('http://x', { method: 'POST', headers: { 'content-type': header }, body: buffer }).formData();
   } catch {
     throw bad();
   }
