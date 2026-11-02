@@ -31,7 +31,7 @@ export async function listQueue(db) {
      FROM reports p JOIN comments c ON c.id = p.comment_id JOIN recipes r ON r.id = p.recipe_id
      LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
      LEFT JOIN accounts a ON a.id = p.reporter_id
-     WHERE p.closed_at IS NULL AND r.removed_at IS NULL ORDER BY p.created_at, p.id`
+     WHERE p.closed_at IS NULL AND c.status = 'published' AND r.removed_at IS NULL ORDER BY p.created_at, p.id`
   );
   return { pending, reports, pendingComments, commentReports };
 }
@@ -56,9 +56,10 @@ export async function getVersion(db, id, version) {
 }
 
 export async function decide(db, { moderatorId, kind, recipeId, version = null, reportId = null, reason }) {
-  const [decision, action] = ACTIONS[kind] ?? [];
+  const [decision, action] = Object.hasOwn(ACTIONS, kind) ? ACTIONS[kind] : [];
   const text = typeof reason === 'string' ? reason.trim() : '';
   if (!decision || text.length < 1 || text.length > 500) return { error: 'bad_reason' };
+  let commentId = null;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -72,13 +73,15 @@ export async function decide(db, { moderatorId, kind, recipeId, version = null, 
       if (!row) return await end(client, 'not_found');
       if (row.status !== 'pending') return await end(client, 'already_done');
     } else if (kind === 'dismiss') {
-      const { rows: [row] } = await client.query('SELECT closed_at FROM reports WHERE id = $1 AND recipe_id = $2', [reportId, recipeId]);
+      const { rows: [row] } = await client.query('SELECT closed_at, comment_id FROM reports WHERE id = $1 AND recipe_id = $2', [reportId, recipeId]);
       if (!row) return await end(client, 'not_found');
       if (row.closed_at) return await end(client, 'already_done');
+      commentId = row.comment_id;
     }
+    // A dismissed comment report is a comment decision: it must not show as the recipe's last decision.
     const { rows: [{ id }] } = await client.query(
-      'INSERT INTO moderation_decisions (recipe_id, version, moderator_id, decision, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-      [recipeId, kind === 'remove' || kind === 'dismiss' ? null : version, moderatorId, decision, text]);
+      'INSERT INTO moderation_decisions (recipe_id, comment_id, version, moderator_id, decision, reason) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [recipeId, commentId, kind === 'remove' || kind === 'dismiss' ? null : version, moderatorId, decision, text]);
     if (kind === 'accept') {
       await client.query("UPDATE recipe_versions SET status = 'published', published_at = now() WHERE recipe_id = $1 AND version = $2", [recipeId, version]);
       await client.query(

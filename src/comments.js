@@ -70,16 +70,17 @@ const DECISIONS = {
 
 // Same shape as moderation.decide: lock the row, check its state, write the decision, then the log.
 export async function decideComment(db, { moderatorId, kind, commentId, reason }) {
-  const [decision, action, from, to] = DECISIONS[kind] ?? [];
+  const [decision, action, from, to] = Object.hasOwn(DECISIONS, kind) ? DECISIONS[kind] : [];
   const text = typeof reason === 'string' ? reason.trim() : '';
   if (!decision || text.length < 1 || text.length > 500) return { error: 'bad_reason' };
   const client = await db.connect();
   const end = async (error) => { await client.query('ROLLBACK'); return { error }; };
   try {
     await client.query('BEGIN');
-    const { rows: [row] } = await client.query('SELECT recipe_id, status FROM comments WHERE id = $1 FOR UPDATE', [commentId]);
+    const { rows: [row] } = await client.query(
+      'SELECT c.recipe_id, c.status, r.removed_at FROM comments c JOIN recipes r ON r.id = c.recipe_id WHERE c.id = $1 FOR UPDATE OF c', [commentId]);
     if (!row) return await end('not_found');
-    if (row.status !== from) return await end('already_done');
+    if (row.status !== from || row.removed_at) return await end('already_done');
     const { rows: [{ id }] } = await client.query(
       'INSERT INTO moderation_decisions (recipe_id, comment_id, moderator_id, decision, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [row.recipe_id, commentId, moderatorId, decision, text]);

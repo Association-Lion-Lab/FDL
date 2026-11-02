@@ -326,9 +326,37 @@ describe('comment moderation', () => {
     assert.equal((await post({ kind: 'dismiss', id: String(c.recipeId), report: String(reportId), motif: 'rien' })).status, 303);
     const status = async () => (await pool.query('SELECT status FROM comments WHERE id = $1', [c.id])).rows[0].status;
     assert.equal(await status(), 'published');
+    // The dismissal is a comment decision: the recipe author's list keeps the recipe's own last decision.
+    const mine = (await get('/mes-recettes', author)).text;
+    assert.ok(!mine.includes('rien'));
+    assert.ok(mine.includes('ok'));
+    assert.equal((await pool.query('SELECT comment_id FROM moderation_decisions WHERE decision = $1', ['report_dismissed'])).rows[0].comment_id, String(c.id));
     assert.equal((await pool.query('SELECT closed_at FROM reports WHERE id = $1', [reportId])).rows[0].closed_at !== null, true);
     assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), motif: 'retiré' })).status, 303);
     assert.equal(await status(), 'removed');
+  });
+
+  it('lists a comment report only while the comment is published', async () => {
+    const c = await comment('published');
+    await commentReport(c);
+    await pool.query("UPDATE comments SET status = 'pending' WHERE id = $1", [c.id]);
+    const queue = await listQueue(pool);
+    assert.equal(queue.commentReports.length, 0);
+    assert.equal(queue.pendingComments.length, 1);
+  });
+
+  it('never crashes on inherited property names as kind', async () => {
+    const c = await comment();
+    for (const kind of ['constructor', 'toString', '__proto__', 'comment_constructor', 'comment___proto__']) {
+      const status = (await post({ kind, id: String(c.recipeId), commentaire: String(c.id), motif: 'x' })).status;
+      assert.ok(status === 400 || status === 404, `${kind} ${status}`);
+    }
+  });
+
+  it('answers 409 on a comment whose recipe was removed', async () => {
+    const c = await comment('published');
+    await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [c.recipeId]);
+    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), motif: 'x' })).status, 409);
   });
 
   it('answers 404 without a comment, 409 when already decided, 400 without a reason', async () => {
