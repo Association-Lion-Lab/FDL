@@ -70,7 +70,7 @@ Ces erreurs JSON valent pour toute route (forme ci-dessus) :
 | 400 | `passkey_failed` | étape de clé d'accès refusée (session, défi, signature ou nom invalide) |
 | 401 | `unauthorized` | chemin `/api/` sans session complète valide |
 | 403 | `forbidden` | chemin `/api/` : `moderator` ou `admin` sans clé d'accès |
-| 403 | `bad_origin` | `POST` dont l'en-tête `Origin` est absent ou différent de `FDL_ORIGIN` |
+| 403 | `bad_origin` | `POST` dont l'en-tête `Origin` est absent ou différent de `FDL_ORIGIN`, sauf `POST /oauth/jeton` |
 | 403 | `elevation_required` | ajout d'une clé d'accès (`/cles/inscription/*`) par un `admin` qui a déjà une clé, sans confirmation récente |
 | 413 | `payload_too_large` | corps de plus de 16 Kio |
 | 429 | `too_many` | trop d'essais sur les routes JSON de clé d'accès (10 par 15 minutes) |
@@ -189,18 +189,18 @@ Décisions :
 
 - Pas d'enregistrement de client : `client_id` est l'origine de l'instance (`https://manger.exemple.fr`, `http://192.168.1.10:3000`), comme IndieAuth, sans chemin ni `/` final. `redirect_uri` doit avoir exactement cette origine. `http` est accepté (instances de foyer sur le réseau local) : PKCE protège le code et la page de consentement affiche l'adresse.
 - Client public, PKCE obligatoire, `S256` seulement, pas de secret client.
-- Un jeton d'accès sans expiration, sans jeton de rafraîchissement, révocable depuis `/compte/securite` (« Instances Manger! reliées »). Une seule liaison par compte et par instance : relier à nouveau remplace l'ancien jeton. Le bannissement ou la suppression du compte coupe le jeton.
+- Un jeton d'accès sans expiration, sans jeton de rafraîchissement, révocable depuis `/compte/securite` (« Instances Manger! reliées »). Une seule liaison par compte et par instance : relier à nouveau remplace l'ancien jeton. Le bannissement ou la suppression du compte supprime les liaisons (un débannissement ne les rétablit pas).
 - Portée unique : lecture de `/api/v1`, sans paramètre `scope`. Le jeton n'ouvre jamais le site (pages HTML, formulaires).
 - Code d'autorisation : 32 octets aléatoires, stocké haché, valable 5 minutes, à usage unique (consommé même si l'échange échoue).
 - Le schéma `Bearer` de l'en-tête `Authorization` est insensible à la casse.
-- Limites : compteur en mémoire de 300 requêtes par 15 minutes, une clé par adresse sur `/api/` et `/oauth/jeton`, une clé par instance pour les requêtes portant un jeton. Dépassement : `429` `rate_limited`.
+- Limites : compteur en mémoire de 300 requêtes par 15 minutes, une clé par adresse sur `/api/` et `/oauth/jeton`, une clé par instance pour les requêtes portant un jeton. Dépassement : `429` `rate_limited`. La clé d'instance est le `client_id` déclaré : un autre membre peut donc épuiser le quota d'une instance (accepté pendant la bêta sur invitation).
 - Retour après connexion : une personne non connectée qui ouvre `/oauth/autoriser` revient sur la page de consentement après sa connexion (cookie `fdl_suite`, 10 minutes ; absent ou invalide, retour à l'accueil).
 
 Erreurs :
 
-- `client_id` ou `redirect_uri` invalide : page d'erreur FDL, jamais de redirection.
-- Autres erreurs de la demande, par redirection vers `redirect_uri` : `?error=invalid_request` ou `unsupported_response_type` (ou `access_denied` si la personne refuse), plus `state` s'il était fourni.
-- `/oauth/jeton` : `400 { "error": "invalid_request" | "invalid_grant" | "unsupported_grant_type", "error_description": "..." }`, la description étant en français. `invalid_grant` couvre un code inconnu, déjà utilisé, expiré, émis pour une autre instance ou un autre `redirect_uri`, ou un mauvais `code_verifier` ; le code ne sert plus ensuite. Trop de requêtes : `429`.
+- Toute erreur sur `GET /oauth/autoriser` : page d'erreur FDL « Demande de liaison invalide », jamais de redirection (le `client_id` est déclaré par l'appelant).
+- Redirection vers `redirect_uri` avec `?error=invalid_request`, `unsupported_response_type` ou `access_denied`, plus `state` s'il était fourni : seulement après l'envoi du formulaire de consentement (`POST`).
+- `/oauth/jeton` : `400 { "error": "invalid_request" | "invalid_grant" | "unsupported_grant_type", "error_description": "..." }`, la description étant en français. `invalid_grant` couvre un code inconnu, déjà utilisé, expiré, émis pour une autre instance ou un autre `redirect_uri`, un mauvais `code_verifier` ou un compte banni ; le code ne sert plus ensuite. Trop de requêtes : `429`.
 
 Hors périmètre : métadonnées de découverte (RFC 8414, les chemins sont fixes), révocation à distance par Manger! (RFC 7009), date de dernière utilisation d'un jeton, révocation des jetons au changement de mot de passe.
 

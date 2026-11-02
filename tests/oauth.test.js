@@ -111,6 +111,33 @@ describe('HTTP', () => {
     assert.equal(response.headers.get('location'), null);
   });
 
+  it('never redirects a GET error, even to a self-declared origin, and clears fdl_suite', async () => {
+    const evil = 'https://evil.example';
+    for (const fields of [{ client_id: evil, redirect_uri: `${evil}/x`, response_type: 'token' }, { code_challenge_method: 'plain' }, { state: 's'.repeat(501) }]) {
+      const response = await get(`/oauth/autoriser?${query(fields)}`);
+      assert.equal(response.status, 400, JSON.stringify(fields));
+      assert.equal(response.headers.get('location'), null);
+      assert.match(response.headers.get('set-cookie'), /^fdl_suite=; .*Max-Age=0/);
+    }
+  });
+
+  it('redirects a POST error to the declared address only after the form', async () => {
+    const answer = await post('/oauth/autoriser', { ...Object.fromEntries(query({ response_type: 'token' })), decision: 'autoriser' });
+    assert.equal(new URL(answer.headers.get('location')).searchParams.get('error'), 'unsupported_response_type');
+  });
+
+  it('keeps a Bearer out of the site and refuses a banned account', async () => {
+    const code = await createCode(pool, { accountId: me, clientId: client, redirectUri: `${client}/fdl/retour`, challenge });
+    const token = await exchangeCode(pool, { code, clientId: client, redirectUri: `${client}/fdl/retour`, verifier });
+    for (const path of ['/', '/compte/securite']) {
+      const response = await fetch(`${base}${path}`, { redirect: 'manual', headers: { authorization: `Bearer ${token}` } });
+      assert.equal(response.status, 303, path);
+      assert.equal(response.headers.get('location'), '/connexion', path);
+    }
+    await pool.query('UPDATE accounts SET banned_at = now() WHERE id = $1', [me]);
+    assert.equal((await fetch(`${base}/api/v1/mes-recettes`, { headers: { authorization: `Bearer ${token}` } })).status, 401);
+  });
+
   it('redirects a refusal with access_denied', async () => {
     const answer = await post('/oauth/autoriser', { ...Object.fromEntries(query()), decision: 'refuser' });
     assert.equal(new URL(answer.headers.get('location')).searchParams.get('error'), 'access_denied');
@@ -241,5 +268,8 @@ describe('exchangeCode', () => {
     assert.equal(await loadToken(pool, second), null);
     assert.deepEqual(await listLinks(pool, me), []);
     assert.equal(await loadToken(pool, ''), null);
+    const pending = await code();
+    await revokeLink(pool, me, client);
+    assert.equal(await grant(pending), null);
   });
 });

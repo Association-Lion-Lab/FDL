@@ -237,6 +237,8 @@ ${rows.map((r) => html`<tr><td>${r.display_name}</td><td>${r.email}</td><td>${r.
       if (lastAdmin) return 'Impossible : il doit rester au moins un administrateur.';
       await client.query('UPDATE accounts SET banned_at = COALESCE(banned_at, now()) WHERE id = $1', [id]);
       await client.query('DELETE FROM sessions WHERE account_id = $1', [id]);
+      await client.query('DELETE FROM oauth_tokens WHERE account_id = $1', [id]);
+      await client.query('DELETE FROM oauth_codes WHERE account_id = $1', [id]);
       await record(client, request, 'account_banned', id, {});
       return null;
     }),

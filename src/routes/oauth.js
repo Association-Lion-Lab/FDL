@@ -12,11 +12,15 @@ function back(response, redirectUri, fields) {
 }
 
 // Returns the parsed request, or null once an answer was sent.
-function parse(response, params) {
+// Only the POST (after a click on a page showing the address) may redirect an error: client_id is self-declared.
+function parse(response, params, mayRedirect) {
   const auth = params instanceof URLSearchParams ? parseAuthorization(params) : { redirectUri: null };
   if (auth.ok) return auth;
-  if (auth.redirectUri) back(response, auth.redirectUri, { error: auth.error, state: auth.state });
-  else sendPage(response, 400, 'Demande de liaison invalide', html`<h1>Demande de liaison invalide</h1><p>Cette demande de liaison Manger! est invalide. Revenez dans Manger! et recommencez.</p>`);
+  if (mayRedirect && auth.redirectUri) back(response, auth.redirectUri, { error: auth.error, state: auth.state });
+  else {
+    if (!mayRedirect) response.setHeader('set-cookie', `${SUITE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+    sendPage(response, 400, 'Demande de liaison invalide', html`<h1>Demande de liaison invalide</h1><p>Cette demande de liaison Manger! est invalide. Revenez dans Manger! et recommencez.</p>`);
+  }
   return null;
 }
 
@@ -30,7 +34,7 @@ export function oauthRoutes(pool) {
   return {
     'GET /oauth/autoriser': (request, response) => {
       const params = new URL(request.url, 'http://x').searchParams;
-      const auth = parse(response, params);
+      const auth = parse(response, params, false);
       if (!auth) return;
       response.setHeader('set-cookie', `${SUITE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
       sendPage(response, 200, 'Relier Manger!', html`<h1>Relier Manger!</h1>
@@ -45,7 +49,7 @@ ${FIELDS.filter((name) => params.has(name)).map((name) => html`<input type="hidd
 
     'POST /oauth/autoriser': async (request, response) => {
       const params = await readBody(request);
-      const auth = parse(response, params);
+      const auth = parse(response, params, true);
       if (!auth) return;
       if (params.get('decision') !== 'autoriser') return back(response, auth.redirectUri, { error: 'access_denied', state: auth.state });
       const code = await createCode(pool, { accountId: request.session.accountId, clientId: auth.clientId, redirectUri: auth.redirectUri, challenge: auth.challenge });

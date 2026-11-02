@@ -87,4 +87,5 @@ export async function listLinks(db, accountId) {
 
 export async function revokeLink(db, accountId, clientId) {
   await db.query('DELETE FROM oauth_tokens WHERE account_id = $1 AND client_id = $2', [accountId, clientId]);
+  await db.query('DELETE FROM oauth_codes WHERE account_id = $1 AND client_id = $2', [accountId, clientId]);
 }
