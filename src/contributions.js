@@ -9,7 +9,7 @@ const fail = (code, message) => Object.assign(new Error(message), { code });
 const notFound = () => fail('not_found', 'Recette introuvable.');
 
 // Lowercase without accents, so "Pâtes" and "pates" compare equal.
-const fold = (value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+export const fold = (value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 export async function saveDraft(db, { recipeId = null, authorId, draft }) {
   try {
@@ -41,7 +41,7 @@ export async function isTrusted(db, authorId) {
   return rows[0].n >= TRUST_THRESHOLD;
 }
 
-async function bannedWords(dataDir) {
+export async function bannedWords(dataDir) {
   try {
     return (await readFile(join(dataDir, 'mots-interdits.txt'), 'utf8')).split(/\r?\n/).map((w) => fold(w.trim())).filter(Boolean);
   } catch (error) {
@@ -130,7 +130,7 @@ const OWN = `SELECT r.id, r.draft, ${STATE} AS state, l.version, l.status, l.fla
     l.tags, l.seasons, l.universe, l.ingredients, l.steps, l.provenance, l.source_url, l.photo, l.photo_credit, d.decision, d.reason, d.at
   FROM recipes r
   LEFT JOIN LATERAL (SELECT * FROM recipe_versions WHERE recipe_id = r.id ORDER BY version DESC LIMIT 1) l ON true
-  LEFT JOIN LATERAL (SELECT * FROM moderation_decisions WHERE recipe_id = r.id ORDER BY at DESC, id DESC LIMIT 1) d ON true
+  LEFT JOIN LATERAL (SELECT * FROM moderation_decisions WHERE recipe_id = r.id AND comment_id IS NULL ORDER BY at DESC, id DESC LIMIT 1) d ON true
   WHERE r.author_id = $1`;
 
 export async function listMine(db, authorId) {
