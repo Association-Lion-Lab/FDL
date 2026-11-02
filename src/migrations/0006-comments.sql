@@ -16,4 +16,5 @@ CREATE INDEX comments_recipe_idx ON comments (recipe_id, id);
 ALTER TABLE reports ADD COLUMN comment_id bigint REFERENCES comments ON DELETE CASCADE;
 DROP INDEX reports_open_idx;
 CREATE UNIQUE INDEX reports_open_idx ON reports (recipe_id, coalesce(comment_id, 0), reporter_id) WHERE closed_at IS NULL;
-ALTER TABLE moderation_decisions ADD COLUMN comment_id bigint REFERENCES comments ON DELETE SET NULL;
+-- No foreign key, like moderator_id: a deleted comment's decision must not turn into a recipe decision.
+ALTER TABLE moderation_decisions ADD COLUMN comment_id bigint;

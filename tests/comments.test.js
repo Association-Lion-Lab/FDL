@@ -125,6 +125,17 @@ describe('editComment', () => {
     assert.equal(after.edited_at, null);
   });
 
+  it('resubmits a rejected comment: pending again, reason cleared', async () => {
+    const recipeId = await visibleRecipe();
+    const member = await account();
+    const { rows: [{ id }] } = await pool.query(
+      "INSERT INTO comments (recipe_id, author_id, body, status, reason) VALUES ($1, $2, 'Avant', 'rejected', 'Motif') RETURNING id", [recipeId, member]);
+    assert.deepEqual(await editComment(pool, { commentId: id, authorId: member, body: 'Après', dataDir }), { status: 'pending' });
+    const after = await row(id);
+    assert.equal(after.status, 'pending');
+    assert.equal(after.reason, null);
+  });
+
   it('refuses when the recipe is no longer visible', async () => {
     const recipeId = await visibleRecipe();
     const member = await trusted();
@@ -201,6 +212,9 @@ describe('listMine', () => {
     await pool.query("INSERT INTO moderation_decisions (recipe_id, version, decision, reason) VALUES ($1, 1, 'accepted', 'Bien')", [id]);
     const { id: commentId } = await add(id, authorId);
     await pool.query("INSERT INTO moderation_decisions (recipe_id, comment_id, decision, reason) VALUES ($1, $2, 'removed', 'Hors sujet')", [id, commentId]);
+    assert.equal((await listMine(pool, authorId))[0].lastDecision.decision, 'accepted');
+    // Deleting the comment keeps its decision off the recipe.
+    assert.equal(await deleteComment(pool, { commentId, authorId }), true);
     assert.equal((await listMine(pool, authorId))[0].lastDecision.decision, 'accepted');
   });
 });

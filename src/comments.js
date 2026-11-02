@@ -1,4 +1,4 @@
-import { bannedWords, fold, isTrusted } from './contributions.js';
+import { isTrusted, textFlags } from './contributions.js';
 import { VISIBLE } from './recipes.js';
 
 export const COMMENT_INVALID = 'Le commentaire doit faire de 1 à 1 000 caractères.';
@@ -24,10 +24,7 @@ async function isCommentTrusted(db, accountId) {
 }
 
 async function statusFor(db, accountId, text, dataDir) {
-  const flags = [];
-  if (/https?:\/\/|www\./i.test(text)) flags.push('link');
-  const banned = new Set(await bannedWords(dataDir));
-  if (banned.size && fold(text).split(/[^\p{L}\p{N}]+/u).some((w) => banned.has(w))) flags.push('banned_word');
+  const flags = await textFlags([text], dataDir);
   const status = !flags.length && (await isCommentTrusted(db, accountId)) ? 'published' : 'pending';
   return { status, flags };
 }

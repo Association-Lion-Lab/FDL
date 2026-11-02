@@ -50,12 +50,18 @@ export async function bannedWords(dataDir) {
   }
 }
 
-export async function autoFlags(db, fields, { recipeId = null, dataDir }) {
+// 'link' and 'banned_word' flags shared by recipes and comments.
+export async function textFlags(texts, dataDir) {
   const flags = [];
-  const texts = [fields.title, ...fields.ingredients.map((i) => i.name), ...fields.steps.map((s) => s.instruction), fields.provenance];
   if (texts.some((t) => /https?:\/\/|www\./i.test(t))) flags.push('link');
   const banned = new Set(await bannedWords(dataDir));
   if (banned.size && texts.some((t) => fold(t).split(/[^\p{L}\p{N}]+/u).some((w) => banned.has(w)))) flags.push('banned_word');
+  return flags;
+}
+
+export async function autoFlags(db, fields, { recipeId = null, dataDir }) {
+  const texts = [fields.title, ...fields.ingredients.map((i) => i.name), ...fields.steps.map((s) => s.instruction), fields.provenance];
+  const flags = await textFlags(texts, dataDir);
   // ponytail: compares in JS against every visible title; move to a normalized column if the catalogue grows past a few thousand.
   const { rows } = await db.query(`SELECT v.title ${VISIBLE} AND r.id IS DISTINCT FROM $1`, [recipeId]);
   const title = fold(fields.title);
