@@ -62,6 +62,42 @@ export async function deleteComment(db, { commentId, authorId }) {
   return row ? Number(row.recipe_id) : null;
 }
 
+const DECISIONS = {
+  accept: ['accepted', 'comment_accepted', 'pending', 'published'],
+  reject: ['rejected', 'comment_rejected', 'pending', 'rejected'],
+  remove: ['removed', 'comment_removed', 'published', 'removed'],
+};
+
+// Same shape as moderation.decide: lock the row, check its state, write the decision, then the log.
+export async function decideComment(db, { moderatorId, kind, commentId, reason }) {
+  const [decision, action, from, to] = DECISIONS[kind] ?? [];
+  const text = typeof reason === 'string' ? reason.trim() : '';
+  if (!decision || text.length < 1 || text.length > 500) return { error: 'bad_reason' };
+  const client = await db.connect();
+  const end = async (error) => { await client.query('ROLLBACK'); return { error }; };
+  try {
+    await client.query('BEGIN');
+    const { rows: [row] } = await client.query('SELECT recipe_id, status FROM comments WHERE id = $1 FOR UPDATE', [commentId]);
+    if (!row) return await end('not_found');
+    if (row.status !== from) return await end('already_done');
+    const { rows: [{ id }] } = await client.query(
+      'INSERT INTO moderation_decisions (recipe_id, comment_id, moderator_id, decision, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [row.recipe_id, commentId, moderatorId, decision, text]);
+    // An accepted comment keeps no reason; a refused or removed one shows it to its author.
+    await client.query('UPDATE comments SET status = $2, reason = $3 WHERE id = $1', [commentId, to, kind === 'accept' ? null : text]);
+    if (kind === 'remove') await client.query('UPDATE reports SET closed_at = now(), decision_id = $2 WHERE comment_id = $1 AND closed_at IS NULL', [commentId, id]);
+    await client.query('INSERT INTO admin_log (actor_id, action, target, detail) VALUES ($1, $2, $3, $4)',
+      [moderatorId, action, String(commentId), JSON.stringify({ recipeId: Number(row.recipe_id), commentId: Number(commentId), reason: text })]);
+    await client.query('COMMIT');
+    return { ok: true };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listComments(db, { recipeId, viewerId = null }) {
   const { rows } = await db.query(
     `SELECT c.id, c.author_id, a.display_name AS author, c.body, c.status, c.reason, c.created_at, c.edited_at

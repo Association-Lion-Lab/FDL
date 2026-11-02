@@ -1,3 +1,4 @@
+import { decideComment } from '../comments.js';
 import { decide, getVersion, listQueue } from '../moderation.js';
 import { sweepPhotos } from '../photos.js';
 import { html, readBody, redirect } from '../web.js';
@@ -26,13 +27,21 @@ ${Object.entries(ids).map(([name, value]) => html`<input type="hidden" name="${n
 <button type="submit">${label}</button>
 </form>`;
 
+function failure(response, error) {
+  if (error === 'already_done') return message(response, 409, 'Déjà traitée');
+  if (error === 'not_found') return message(response, 404, 'Élément introuvable');
+  return show(response, 400, 'Motif obligatoire', html`<h1>Motif obligatoire</h1>
+<p class="error" role="alert">Le motif doit faire de 1 à 500 caractères.</p>
+<p><a href="/moderation">Retour à la file</a></p>`);
+}
+
 export function moderationRoutes(pool, config) {
   const staffOnly = (handler) => (request, response) =>
     request.session.role === 'moderator' || request.session.role === 'admin' ? handler(request, response) : deny(response);
 
   return {
     'GET /moderation': staffOnly(async (request, response) => {
-      const { pending, reports } = await listQueue(pool);
+      const { pending, reports, pendingComments, commentReports } = await listQueue(pool);
       show(response, 200, 'Modération', html`<h1>Modération</h1>
 <h2>Versions en attente</h2>
 ${pending.length ? html`<ul>${pending.map((p) => html`<li><a href="/moderation/version?id=${p.id}&version=${p.version}">${p.title}</a>
@@ -47,7 +56,23 @@ sur ${p.version === null ? p.title : html`<a href="/moderation/version?id=${p.re
 par ${p.reporter ?? 'un compte supprimé'}, le ${when(p.created_at)}
 ${decisionForm('remove', 'Retirer la recette', { id: p.recipeId, report: p.id })}
 ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.id })}</li>
-`)}</ul>` : html`<p>Aucun signalement ouvert.</p>`}`);
+`)}</ul>` : html`<p>Aucun signalement ouvert.</p>`}
+<h2>Commentaires en attente</h2>
+${pendingComments.length ? html`<ul>${pendingComments.map((c) => html`<li><p>${c.body}</p>
+sur <a href="/recette?id=${c.recipeId}">${c.title ?? 'Sans titre'}</a>
+par ${c.author}, le ${when(c.created_at)}
+${c.flags.length ? html`<span>Signalé automatiquement : ${c.flags.map((f) => FLAGS[f] ?? f).join(', ')}</span>` : ''}
+${decisionForm('comment_accept', 'Accepter', { commentaire: c.id })}
+${decisionForm('comment_reject', 'Refuser', { commentaire: c.id })}</li>
+`)}</ul>` : html`<p>Aucun commentaire en attente.</p>`}
+<h2>Signalements de commentaires</h2>
+${commentReports.length ? html`<ul>${commentReports.map((p) => html`<li>${CATEGORIES[p.category]} : ${p.detail}
+<p>${p.body}</p>
+sur <a href="/recette?id=${p.recipeId}">${p.title}</a>
+par ${p.reporter ?? 'un compte supprimé'}, le ${when(p.created_at)}
+${decisionForm('comment_remove', 'Retirer le commentaire', { commentaire: p.commentId })}
+${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.id })}</li>
+`)}</ul>` : html`<p>Aucun signalement de commentaire ouvert.</p>`}`);
     }),
 
     'GET /moderation/version': staffOnly(async (request, response) => {
@@ -66,6 +91,12 @@ ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.
       const version = field(body, 'version') === '' ? null : parseVersion(field(body, 'version'));
       const reportId = field(body, 'report') === '' ? null : parseId(field(body, 'report'));
       const kind = field(body, 'kind');
+      if (kind.startsWith('comment_')) {
+        const commentId = parseId(field(body, 'commentaire'));
+        if (!commentId) return message(response, 404, 'Élément introuvable');
+        const outcome = await decideComment(pool, { moderatorId: request.session.accountId, kind: kind.slice(8), commentId, reason: field(body, 'motif') });
+        return outcome.ok ? redirect(response, '/moderation') : failure(response, outcome.error);
+      }
       const needsVersion = kind === 'accept' || kind === 'reject';
       if (!id || (needsVersion && !version) || (kind === 'dismiss' && !reportId)) return message(response, 404, 'Élément introuvable');
       const result = await decide(pool, { moderatorId: request.session.accountId, kind, recipeId: id, version, reportId, reason: field(body, 'motif') });
@@ -74,11 +105,7 @@ ${decisionForm('dismiss', 'Classer le signalement', { id: p.recipeId, report: p.
         if (kind === 'remove') await sweepPhotos(pool, config?.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
         return redirect(response, '/moderation');
       }
-      if (result.error === 'already_done') return message(response, 409, 'Déjà traitée');
-      if (result.error === 'not_found') return message(response, 404, 'Élément introuvable');
-      return show(response, 400, 'Motif obligatoire', html`<h1>Motif obligatoire</h1>
-<p class="error" role="alert">Le motif doit faire de 1 à 500 caractères.</p>
-<p><a href="/moderation">Retour à la file</a></p>`);
+      return failure(response, result.error);
     }),
   };
 }

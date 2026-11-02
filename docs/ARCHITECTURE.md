@@ -40,4 +40,6 @@ Le socle et `acces` sont construits. Le serveur est un seul processus Node.js, a
 
 - **Photos** (`photos`, construit) : un JPEG par recette, nettoyé de ses métadonnées par une liste de segments autorisés, stocké sous `photos/<sha256>.jpg` dans le dossier de données et servi par `GET /photo` selon la visibilité de la version. Un nettoyage supprime les fichiers orphelins de plus de 10 minutes. Voir `docs/CONTRATS.md`.
 
+- **Commentaires** (`commentaires`, construit) : table `comments` (statuts `pending`, `published`, `rejected`, `removed`), logique dans `src/comments.js`, routes dans `src/routes/comments.js`. Même confiance progressive et mêmes filtres de texte que les recettes ; modération dans la file `/moderation` (`decideComment`, transaction avec verrou de ligne). Un commentaire n'est jamais transmis à Manger!.
+
 L'interface publique n'est pas encore construite.

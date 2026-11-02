@@ -17,9 +17,23 @@ export async function listQueue(db) {
      FROM reports p JOIN recipes r ON r.id = p.recipe_id
      LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
      LEFT JOIN accounts a ON a.id = p.reporter_id
+     WHERE p.closed_at IS NULL AND p.comment_id IS NULL AND r.removed_at IS NULL ORDER BY p.created_at, p.id`
+  );
+  const { rows: pendingComments } = await db.query(
+    `SELECT c.id, c.recipe_id AS "recipeId", c.body, c.flags, c.created_at, a.display_name AS author, v.title
+     FROM comments c JOIN recipes r ON r.id = c.recipe_id JOIN accounts a ON a.id = c.author_id
+     LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
+     WHERE c.status = 'pending' AND r.removed_at IS NULL ORDER BY c.created_at, c.id`
+  );
+  const { rows: commentReports } = await db.query(
+    `SELECT p.id, p.comment_id AS "commentId", p.recipe_id AS "recipeId", p.category, p.detail, p.created_at, c.body,
+       coalesce(v.title, 'Sans titre') AS title, a.display_name AS reporter
+     FROM reports p JOIN comments c ON c.id = p.comment_id JOIN recipes r ON r.id = p.recipe_id
+     LEFT JOIN recipe_versions v ON v.recipe_id = r.id AND v.version = r.published_version
+     LEFT JOIN accounts a ON a.id = p.reporter_id
      WHERE p.closed_at IS NULL AND r.removed_at IS NULL ORDER BY p.created_at, p.id`
   );
-  return { pending, reports };
+  return { pending, reports, pendingComments, commentReports };
 }
 
 export async function getVersion(db, id, version) {

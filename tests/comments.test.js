@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { migrate } from '../src/db.js';
-import { addComment, COMMENT_INVALID, deleteComment, editComment, listComments, visibleComment } from '../src/comments.js';
+import { addComment, COMMENT_INVALID, decideComment, deleteComment, editComment, listComments, visibleComment } from '../src/comments.js';
 import { listMine } from '../src/contributions.js';
 import { publishVersion } from '../src/recipes.js';
 import { createTestDatabase } from './helpers/db.js';
@@ -202,6 +202,61 @@ describe('visibleComment', () => {
     await pool.query('UPDATE accounts SET banned_at = NULL WHERE id = $1', [member]);
     await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [recipeId]);
     assert.equal(await visibleComment(pool, id), null);
+  });
+});
+
+describe('decideComment', () => {
+  const pendingComment = async (status = 'pending') => {
+    const recipeId = await visibleRecipe();
+    const id = (await add(recipeId, await account())).id;
+    if (status !== 'pending') await pool.query('UPDATE comments SET status = $2 WHERE id = $1', [id, status]);
+    return { recipeId, id };
+  };
+  const decideOn = async (kind, commentId, reason = 'Parce que.') => decideComment(pool, { moderatorId: await account(), kind, commentId, reason });
+  const logs = async () => (await pool.query('SELECT * FROM admin_log ORDER BY id')).rows;
+
+  it('accepts, rejects and removes, recording decision and log', async () => {
+    const a = await pendingComment();
+    assert.deepEqual(await decideOn('accept', a.id, 'Ok'), { ok: true });
+    assert.deepEqual([(await row(a.id)).status, (await row(a.id)).reason], ['published', null]);
+    const b = await pendingComment();
+    assert.deepEqual(await decideOn('reject', b.id, 'Non'), { ok: true });
+    assert.deepEqual([(await row(b.id)).status, (await row(b.id)).reason], ['rejected', 'Non']);
+    assert.deepEqual(await decideOn('remove', a.id, 'Retiré'), { ok: true });
+    assert.deepEqual([(await row(a.id)).status, (await row(a.id)).reason], ['removed', 'Retiré']);
+    const { rows } = await pool.query('SELECT * FROM moderation_decisions ORDER BY id');
+    assert.deepEqual(rows.map((r) => [r.decision, Number(r.comment_id), Number(r.recipe_id)]),
+      [['accepted', a.id, a.recipeId], ['rejected', b.id, b.recipeId], ['removed', a.id, a.recipeId]]);
+    const log = await logs();
+    assert.deepEqual(log.map((l) => [l.action, l.target]), [['comment_accepted', String(a.id)], ['comment_rejected', String(b.id)], ['comment_removed', String(a.id)]]);
+    assert.deepEqual(log[2].detail, { recipeId: a.recipeId, commentId: a.id, reason: 'Retiré' });
+  });
+
+  it('closes the open reports of a removed comment', async () => {
+    const a = await pendingComment('published');
+    await pool.query("INSERT INTO reports (recipe_id, comment_id, reporter_id, category) VALUES ($1, $2, $3, 'spam')", [a.recipeId, a.id, await account()]);
+    await decideOn('remove', a.id);
+    const { rows: [r] } = await pool.query('SELECT closed_at, decision_id FROM reports WHERE comment_id = $1', [a.id]);
+    assert.ok(r.closed_at && r.decision_id);
+  });
+
+  it('answers already_done, not_found and bad_reason without writing', async () => {
+    const p = await pendingComment();
+    const pub = await pendingComment('published');
+    assert.deepEqual(await decideOn('accept', pub.id), { error: 'already_done' });
+    assert.deepEqual(await decideOn('reject', pub.id), { error: 'already_done' });
+    assert.deepEqual(await decideOn('remove', p.id), { error: 'already_done' });
+    assert.deepEqual(await decideOn('accept', 999999), { error: 'not_found' });
+    for (const reason of ['', '   ', 'x'.repeat(501)]) assert.deepEqual(await decideOn('accept', p.id, reason), { error: 'bad_reason' });
+    assert.equal((await row(p.id)).status, 'pending');
+    assert.equal((await logs()).length, 0);
+    assert.equal((await pool.query('SELECT 1 FROM moderation_decisions')).rowCount, 0);
+  });
+
+  it('lets only one of two concurrent decisions through', async () => {
+    const p = await pendingComment();
+    const results = await Promise.all([decideOn('accept', p.id), decideOn('reject', p.id)]);
+    assert.deepEqual(results.map((r) => r.ok ?? r.error).sort(), ['already_done', true]);
   });
 });
 

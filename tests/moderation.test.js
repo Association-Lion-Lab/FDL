@@ -280,3 +280,65 @@ describe('reports', () => {
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM reports')).rows[0].n, 10);
   });
 });
+
+describe('comment moderation', () => {
+  async function comment(status = 'pending', body = 'Texte <b>x</b>') {
+    const target = await pending();
+    await post({ kind: 'accept', id: target.id, version: target.version, motif: 'ok' });
+    const { rows } = await pool.query(
+      'INSERT INTO comments (recipe_id, author_id, body, status) VALUES ($1, $2, $3, $4) RETURNING id', [target.id, author.id, body, status]);
+    return { recipeId: target.id, id: rows[0].id };
+  }
+  const commentReport = async (c) => (await pool.query(
+    "INSERT INTO reports (recipe_id, comment_id, reporter_id, category, detail) VALUES ($1, $2, $3, 'spam', 'sig <i>c</i>') RETURNING id",
+    [c.recipeId, c.id, mod.id])).rows[0].id;
+
+  it('lists pending comments and comment reports apart from recipe reports', async () => {
+    const c = await comment();
+    const pub = await comment('published', 'Publié');
+    await commentReport(pub);
+    const queue = await listQueue(pool);
+    assert.equal(queue.pendingComments.length, 1);
+    assert.equal(queue.commentReports.length, 1);
+    assert.equal(queue.reports.length, 0);
+    const page = (await get('/moderation', mod)).text;
+    assert.ok(page.includes('Commentaires en attente'));
+    assert.ok(page.includes('Signalements de commentaires'));
+    assert.ok(page.includes('Texte &lt;b&gt;x&lt;/b&gt;'));
+    assert.ok(!page.includes('<b>x</b>'));
+    assert.ok(page.includes('sig &lt;i&gt;c&lt;/i&gt;'));
+    assert.ok(page.includes(`/recette?id=${c.recipeId}`));
+    for (const label of ['Accepter', 'Refuser', 'Retirer le commentaire', 'Classer le signalement']) assert.ok(page.includes(label), label);
+  });
+
+  it('rejects a comment: the author sees the reason on the recipe page, not on /mes-recettes', async () => {
+    const c = await comment();
+    const sent = await post({ kind: 'comment_reject', commentaire: String(c.id), motif: 'Hors sujet ici' });
+    assert.equal(sent.status, 303);
+    assert.ok((await get(`/recette?id=${c.recipeId}`, author)).text.includes('Refusé. Motif : Hors sujet ici'));
+    assert.ok(!(await get('/mes-recettes', author)).text.includes('Hors sujet ici'));
+  });
+
+  it('accepts and removes a comment; dismiss leaves the comment published', async () => {
+    const c = await comment();
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: 'ok' })).status, 303);
+    const reportId = await commentReport(c);
+    assert.equal((await post({ kind: 'dismiss', id: String(c.recipeId), report: String(reportId), motif: 'rien' })).status, 303);
+    const status = async () => (await pool.query('SELECT status FROM comments WHERE id = $1', [c.id])).rows[0].status;
+    assert.equal(await status(), 'published');
+    assert.equal((await pool.query('SELECT closed_at FROM reports WHERE id = $1', [reportId])).rows[0].closed_at !== null, true);
+    assert.equal((await post({ kind: 'comment_remove', commentaire: String(c.id), motif: 'retiré' })).status, 303);
+    assert.equal(await status(), 'removed');
+  });
+
+  it('answers 404 without a comment, 409 when already decided, 400 without a reason', async () => {
+    const c = await comment();
+    for (const commentaire of [undefined, '', 'abc', '99999999999999999999']) {
+      assert.equal((await post({ kind: 'comment_accept', ...(commentaire === undefined ? {} : { commentaire }), motif: 'x' })).status, 404);
+    }
+    assert.equal((await post({ kind: 'comment_accept', commentaire: '999999', motif: 'x' })).status, 404);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: '' })).status, 400);
+    assert.equal((await post({ kind: 'comment_accept', commentaire: String(c.id), motif: 'ok' })).status, 303);
+    assert.equal((await post({ kind: 'comment_reject', commentaire: String(c.id), motif: 'non' })).status, 409);
+  });
+});
