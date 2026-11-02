@@ -10,6 +10,7 @@ import { sweepPhotos } from './photos.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
+import { commentRoutes } from './routes/comments.js';
 import { contributionRoutes } from './routes/contributions.js';
 import { moderationRoutes } from './routes/moderation.js';
 import { createSecurityLog } from './securitylog.js';
@@ -79,6 +80,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...adminRoutes(pool, config, { limiter, securityLog }),
     ...catalogueRoutes(pool, config),
     ...contributionRoutes(pool, config, { limiter }),
+    ...commentRoutes(pool, config, { limiter }),
     ...moderationRoutes(pool, config),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });

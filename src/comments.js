@@ -76,6 +76,15 @@ export async function listComments(db, { recipeId, viewerId = null }) {
   }));
 }
 
+// The author's own comment for the edit form; null when foreign or removed.
+export async function getOwnComment(db, { commentId, authorId }) {
+  const { rows: [row] } = await db.query(
+    "SELECT id, recipe_id, body, status FROM comments WHERE id = $1 AND author_id = $2 AND status <> 'removed'",
+    [commentId, authorId]
+  );
+  return row ? { id: Number(row.id), recipeId: Number(row.recipe_id), body: row.body, status: row.status } : null;
+}
+
 export async function visibleComment(db, commentId) {
   const { rows: [row] } = await db.query(
     `SELECT c.id, c.recipe_id FROM comments c JOIN accounts ca ON ca.id = c.author_id

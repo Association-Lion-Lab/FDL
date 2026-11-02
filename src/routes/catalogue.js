@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
+import { listComments } from '../comments.js';
 import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
 import { canSeePhoto, photoPath } from '../photos.js';
@@ -123,6 +124,63 @@ ${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
 <script src="/static/fdl-print.js"></script>`;
 }
 
+const COMMENT_STATES = { pending: 'En attente de modération', published: 'Publié', rejected: 'Refusé', removed: 'Retiré' };
+const commentDate = (date) => date.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Paris' });
+
+// Comments of a recipe plus the write form; nothing when the page is not the public one.
+export function commentsSection(comments, { recipeId, canWrite, error = null, text = '' }) {
+  if (!canWrite) return '';
+  return html`<section id="commentaires">
+<h2>Commentaires</h2>
+${comments.length ? html`<ul>${comments.map((c) => html`<li class="comment">
+<p><strong>${c.author}</strong> · ${commentDate(c.createdAt)}${c.editedAt ? ' (modifié)' : ''}</p>
+<p>${c.body}</p>
+${c.mine ? html`<p role="status">${COMMENT_STATES[c.status]}${c.reason ? html`. Motif : ${c.reason}` : ''}</p>
+${c.status === 'removed' ? '' : html`<p><a href="/recette/commentaire/modifier?id=${c.id}">Modifier</a></p>`}
+<form method="post" action="/recette/commentaire/supprimer">
+<input type="hidden" name="id" value="${c.id}">
+<button type="submit">Supprimer</button>
+</form>` : html`<p><a href="/recette/signaler?id=${recipeId}&commentaire=${c.id}">Signaler</a></p>`}
+</li>
+`)}</ul>` : html`<p>Aucun commentaire pour l'instant.</p>`}
+${error ? html`<p class="error" role="alert">${error}</p>` : ''}
+<form method="post" action="/recette/commentaire">
+<input type="hidden" name="id" value="${recipeId}">
+<label>Votre commentaire (1 000 caractères au plus) <textarea name="texte">${text}</textarea></label>
+<button type="submit">Commenter</button>
+</form>
+</section>`;
+}
+
+// The recipe page; `error`/`text` re-show a refused comment.
+export async function recipePage(pool, request, response, id, { status = 200, error = null, text = '' } = {}) {
+  if (!/^\d{1,19}$/.test(id) || BigInt(id) > MAX_ID) return notFound(response);
+  // The author also sees a recipe that is not (or not only) public, with its state.
+  const own = await getOwnRecipe(pool, { recipeId: id, authorId: request.session.accountId });
+  let recipe;
+  let banner = '';
+  if (own && own.state !== 'published' && own.state !== 'removed') {
+    if (!own.latest) return notFound(response);
+    const { latest } = own;
+    recipe = { ...latest, universe: latest.universe && { label: latest.universe }, author: request.session.displayName, publishedAt: null };
+    banner = html`<p role="status">État : ${STATE_LABELS[own.state]}. <a href="/mes-recettes/edition?id=${own.id}">Modifier</a></p>`;
+  } else {
+    recipe = await getRecipe(pool, id);
+    if (!recipe) return notFound(response);
+  }
+  // The author does not rate: no form, no query.
+  const mine = own ? null : (await pool.query('SELECT stars FROM ratings WHERE recipe_id = $1 AND account_id = $2', [id, request.session.accountId])).rows[0]?.stars;
+  const comments = banner ? [] : await listComments(pool, { recipeId: id, viewerId: request.session.accountId });
+  show(response, status, recipe.title, html`${recipeArticle(recipe, banner)}
+${own ? '' : html`<form method="post" action="/recette/note">
+<input type="hidden" name="id" value="${id}">
+<label>Votre note <select name="etoiles">${[1, 2, 3, 4, 5].map((n) => html`<option value="${n}"${mine === n ? html` selected` : ''}>${n}</option>`)}</select></label>
+<button type="submit">Noter</button>
+</form>`}
+${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}
+${commentsSection(comments, { recipeId: id, canWrite: !banner, error, text })}`);
+}
+
 export function catalogueRoutes(pool, config) {
   return {
     'GET /photo': async (request, response) => {
@@ -183,32 +241,7 @@ ${result.items.length ? cards(result.items) : html`<p>Aucune recette ne correspo
 ${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suivante</a></p>` : ''}`, filters.q);
     },
 
-    'GET /recette': async (request, response) => {
-      const id = new URL(request.url, 'http://x').searchParams.get('id') ?? '';
-      if (!/^\d{1,19}$/.test(id) || BigInt(id) > MAX_ID) return notFound(response);
-      // The author also sees a recipe that is not (or not only) public, with its state.
-      const own = await getOwnRecipe(pool, { recipeId: id, authorId: request.session.accountId });
-      let recipe;
-      let banner = '';
-      if (own && own.state !== 'published' && own.state !== 'removed') {
-        if (!own.latest) return notFound(response);
-        const { latest } = own;
-        recipe = { ...latest, universe: latest.universe && { label: latest.universe }, author: request.session.displayName, publishedAt: null };
-        banner = html`<p role="status">État : ${STATE_LABELS[own.state]}. <a href="/mes-recettes/edition?id=${own.id}">Modifier</a></p>`;
-      } else {
-        recipe = await getRecipe(pool, id);
-        if (!recipe) return notFound(response);
-      }
-      // The author does not rate: no form, no query.
-      const mine = own ? null : (await pool.query('SELECT stars FROM ratings WHERE recipe_id = $1 AND account_id = $2', [id, request.session.accountId])).rows[0]?.stars;
-      show(response, 200, recipe.title, html`${recipeArticle(recipe, banner)}
-${own ? '' : html`<form method="post" action="/recette/note">
-<input type="hidden" name="id" value="${id}">
-<label>Votre note <select name="etoiles">${[1, 2, 3, 4, 5].map((n) => html`<option value="${n}"${mine === n ? html` selected` : ''}>${n}</option>`)}</select></label>
-<button type="submit">Noter</button>
-</form>`}
-${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}`);
-    },
+    'GET /recette': (request, response) => recipePage(pool, request, response, new URL(request.url, 'http://x').searchParams.get('id') ?? ''),
 
     'GET /static/fdl-print.js': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' });

@@ -1,3 +1,4 @@
+import { visibleComment } from '../comments.js';
 import { getOwnRecipe, listMine, saveDraft, submitVersion } from '../contributions.js';
 import { DIETS, SEASONS, VISIBLE, listUniverses } from '../recipes.js';
 import { savePhoto, stripJpeg, sweepPhotos } from '../photos.js';
@@ -56,7 +57,7 @@ function draftFrom(body) {
   };
 }
 
-const parseId = (value) => (/^\d{1,19}$/.test(value) && BigInt(value) <= MAX_ID ? value : null);
+export const parseId = (value) => (/^\d{1,19}$/.test(value) && BigInt(value) <= MAX_ID ? value : null);
 
 // `more` adds the 5 ingredient and 3 step lines of the "Ajouter des lignes" button.
 function formPage(response, { id, draft, universes, error = null, status = 200, more = false }) {
@@ -104,11 +105,13 @@ ${steps.map((s) => html`<p><label>Type <select name="step_kind">${Object.entries
 <script src="/static/fdl-photo.js"></script>`);
 }
 
-function reportPage(response, id, { error = null, status = 200 } = {}) {
-  show(response, status, 'Signaler une recette', html`<h1>Signaler une recette</h1>
+function reportPage(response, id, { commentId = null, error = null, status = 200 } = {}) {
+  const title = commentId ? 'Signaler un commentaire' : 'Signaler une recette';
+  show(response, status, title, html`<h1>${title}</h1>
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <form method="post" action="/recette/signaler">
 <input type="hidden" name="id" value="${id}">
+${commentId ? html`<input type="hidden" name="commentaire" value="${commentId}">` : ''}
 <label>Catégorie <select name="category">${Object.entries(REPORT_CATEGORIES).map(([v, l]) => option(v, l, false))}</select></label>
 <label>Détail (facultatif, 1 000 caractères au plus) <textarea name="detail"></textarea></label>
 <button type="submit">Signaler</button>
@@ -117,11 +120,21 @@ ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 
 export function contributionRoutes(pool, config, { limiter }) {
   const visible = async (id) => id && (await pool.query(`SELECT 1 ${VISIBLE} AND r.id = $1`, [id])).rowCount > 0;
+  // The optional comment being reported: '' = none, null = invalid, hidden or of another recipe.
+  const reported = async (id, raw) => {
+    if (raw === '') return '';
+    const commentId = parseId(raw);
+    const found = commentId && await visibleComment(pool, commentId);
+    return found && found.recipeId === Number(id) ? commentId : null;
+  };
   return {
     'GET /recette/signaler': async (request, response) => {
-      const id = parseId(new URL(request.url, 'http://x').searchParams.get('id') ?? '');
+      const params = new URL(request.url, 'http://x').searchParams;
+      const id = parseId(params.get('id') ?? '');
       if (!await visible(id)) return notFound(response);
-      reportPage(response, id);
+      const commentId = await reported(id, params.get('commentaire') ?? '');
+      if (commentId === null) return notFound(response);
+      reportPage(response, id, { commentId });
     },
 
     'POST /recette/signaler': async (request, response) => {
@@ -130,13 +143,15 @@ export function contributionRoutes(pool, config, { limiter }) {
       const body = await readBody(request);
       const id = parseId(field(body, 'id'));
       if (!await visible(id)) return notFound(response);
+      const commentId = await reported(id, field(body, 'commentaire'));
+      if (commentId === null) return notFound(response);
       const category = field(body, 'category');
       const detail = field(body, 'detail').trim();
-      if (!Object.hasOwn(REPORT_CATEGORIES, category)) return reportPage(response, id, { error: 'Choisissez une catégorie.', status: 400 });
-      if (detail.length > 1000) return reportPage(response, id, { error: 'Le détail est limité à 1 000 caractères.', status: 400 });
+      if (!Object.hasOwn(REPORT_CATEGORIES, category)) return reportPage(response, id, { commentId, error: 'Choisissez une catégorie.', status: 400 });
+      if (detail.length > 1000) return reportPage(response, id, { commentId, error: 'Le détail est limité à 1 000 caractères.', status: 400 });
       // A second open report of the same account is the unique index's conflict: same answer, no row.
-      await pool.query('INSERT INTO reports (recipe_id, reporter_id, category, detail) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-        [id, accountId, category, detail]);
+      await pool.query('INSERT INTO reports (recipe_id, comment_id, reporter_id, category, detail) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
+        [id, commentId || null, accountId, category, detail]);
       show(response, 200, 'Signalement envoyé', html`<h1>Signalement envoyé</h1>
 <p>Merci, votre signalement sera examiné.</p>`);
     },
