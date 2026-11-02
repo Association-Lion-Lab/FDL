@@ -70,12 +70,9 @@ export function commentRoutes(pool, config, { limiter }) {
       const body = await readBody(request);
       const commentId = parseId(field(body, 'id'));
       const authorId = request.session.accountId;
-      // Looked up first for the redirect target; deleteComment stays the authority.
-      const { rows: [row] } = commentId
-        ? await pool.query('SELECT recipe_id FROM comments WHERE id = $1 AND author_id = $2', [commentId, authorId])
-        : { rows: [] };
-      if (!row || !await deleteComment(pool, { commentId, authorId })) return notFound(response);
-      back(response, row.recipe_id);
+      const recipeId = commentId && await deleteComment(pool, { commentId, authorId });
+      if (!recipeId) return notFound(response);
+      back(response, recipeId);
     },
   };
 }

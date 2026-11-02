@@ -152,9 +152,9 @@ describe('deleteComment', () => {
     const reporter = await account();
     const { id } = await add(recipeId, member);
     await pool.query("INSERT INTO reports (recipe_id, comment_id, reporter_id, category) VALUES ($1, $2, $3, 'other')", [recipeId, id, reporter]);
-    assert.equal(await deleteComment(pool, { commentId: id, authorId: reporter }), false);
+    assert.equal(await deleteComment(pool, { commentId: id, authorId: reporter }), null);
     assert.ok(await row(id));
-    assert.equal(await deleteComment(pool, { commentId: id, authorId: member }), true);
+    assert.equal(await deleteComment(pool, { commentId: id, authorId: member }), Number(recipeId));
     assert.equal(await row(id), undefined);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM reports WHERE comment_id IS NOT NULL')).rows[0].n, 0);
   });
@@ -214,7 +214,7 @@ describe('listMine', () => {
     await pool.query("INSERT INTO moderation_decisions (recipe_id, comment_id, decision, reason) VALUES ($1, $2, 'removed', 'Hors sujet')", [id, commentId]);
     assert.equal((await listMine(pool, authorId))[0].lastDecision.decision, 'accepted');
     // Deleting the comment keeps its decision off the recipe.
-    assert.equal(await deleteComment(pool, { commentId, authorId }), true);
+    assert.ok(await deleteComment(pool, { commentId, authorId }));
     assert.equal((await listMine(pool, authorId))[0].lastDecision.decision, 'accepted');
   });
 });

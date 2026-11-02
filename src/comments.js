@@ -30,8 +30,8 @@ async function statusFor(db, accountId, text, dataDir) {
 }
 
 export async function addComment(db, { recipeId, authorId, body, dataDir }) {
-  const text = clean(body);
   if (!(await recipeVisible(db, recipeId))) throw fail('not_found', 'Recette introuvable.');
+  const text = clean(body);
   const { status, flags } = await statusFor(db, authorId, text, dataDir);
   const { rows } = await db.query(
     'INSERT INTO comments (recipe_id, author_id, body, status, flags) VALUES ($1, $2, $3, $4, $5) RETURNING id',
@@ -58,8 +58,8 @@ export async function editComment(db, { commentId, authorId, body, dataDir }) {
 }
 
 export async function deleteComment(db, { commentId, authorId }) {
-  const { rowCount } = await db.query('DELETE FROM comments WHERE id = $1 AND author_id = $2', [commentId, authorId]);
-  return rowCount > 0;
+  const { rows: [row] } = await db.query('DELETE FROM comments WHERE id = $1 AND author_id = $2 RETURNING recipe_id', [commentId, authorId]);
+  return row ? Number(row.recipe_id) : null;
 }
 
 export async function listComments(db, { recipeId, viewerId = null }) {

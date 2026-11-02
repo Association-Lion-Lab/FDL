@@ -97,7 +97,25 @@ describe('recipe page', () => {
   });
 });
 
+describe('published recipe with a pending revision', () => {
+  it('keeps the comment section, comments and form for its author', async () => {
+    const id = (await publishVersion(pool, { authorId: me.id, fields: recipe({ title: 'Ma soupe' }) })).id;
+    await saveDraft(pool, { recipeId: id, authorId: me.id, draft: recipe({ title: 'Ma soupe v2' }) });
+    await submitVersion(pool, { recipeId: id, authorId: me.id, mode: 'public', dataDir: config.dataDir });
+    await seed(other.id, 'Joli plat', 'published', id);
+    const { text } = await get(`/recette?id=${id}`);
+    assert.match(text, /Publiée, nouvelle version en attente/);
+    assert.match(text, /<h2>Commentaires<\/h2>/);
+    assert.match(text, /Joli plat/);
+    assert.match(text, /action="\/recette\/commentaire"/);
+  });
+});
+
 describe('POST /recette/commentaire', () => {
+  it('404s on an empty text sent to a private recipe, not 400', async () => {
+    assert.equal((await comment('', me, await privateRecipe())).status, 404);
+  });
+
   it('redirects and shows a new account comment as pending to its author only', async () => {
     const { status, response } = await comment('Bonjour tout le monde');
     assert.equal(status, 303);

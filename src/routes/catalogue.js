@@ -170,7 +170,9 @@ export async function recipePage(pool, request, response, id, { status = 200, er
   }
   // The author does not rate: no form, no query.
   const mine = own ? null : (await pool.query('SELECT stars FROM ratings WHERE recipe_id = $1 AND account_id = $2', [id, request.session.accountId])).rows[0]?.stars;
-  const comments = banner ? [] : await listComments(pool, { recipeId: id, viewerId: request.session.accountId });
+  // A public recipe with a pending revision shows a banner but keeps its comments.
+  const listed = !own || own.state === 'published' || own.state === 'published_pending';
+  const comments = listed ? await listComments(pool, { recipeId: id, viewerId: request.session.accountId }) : [];
   show(response, status, recipe.title, html`${recipeArticle(recipe, banner)}
 ${own ? '' : html`<form method="post" action="/recette/note">
 <input type="hidden" name="id" value="${id}">
@@ -178,7 +180,7 @@ ${own ? '' : html`<form method="post" action="/recette/note">
 <button type="submit">Noter</button>
 </form>`}
 ${banner ? '' : html`<p><a href="/recette/signaler?id=${id}">Signaler</a></p>`}
-${commentsSection(comments, { recipeId: id, canWrite: !banner, error, text })}`);
+${commentsSection(comments, { recipeId: id, canWrite: listed, error, text })}`);
 }
 
 export function catalogueRoutes(pool, config) {
