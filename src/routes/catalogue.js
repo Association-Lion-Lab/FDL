@@ -54,7 +54,7 @@ const ROWS = (season) => [
   ['Végétariennes', { diet: 'vegetarian' }, '/recherche?regime=vegetarian'],
 ];
 
-function readFilters(params) {
+export function readFilters(params) {
   // PostgreSQL refuses NUL in text: such a value is treated as absent.
   const get = (name) => {
     const value = params.get(name);

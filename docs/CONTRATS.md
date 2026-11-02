@@ -146,7 +146,7 @@ FDL peut conserver des métadonnées communautaires supplémentaires, mais l’i
 
 ## Pagination et recherche
 
-La pagination se fait par curseur opaque : 20 recettes par défaut, 50 au maximum. Un curseur invalide produit une erreur `400` de code `bad_cursor`. Les résultats sont triés de la plus récente à la plus ancienne (date de première publication), y compris pour une recherche texte. Aucun brouillon, aucune recette privée et aucune recette d’un compte banni n’y entre. L’API JSON (`/api/v1`) arrivera avec `integration-manger` ; elle reprendra ces règles.
+La pagination se fait par curseur opaque : 20 recettes par défaut, 50 au maximum. Un curseur invalide produit une erreur `400` de code `bad_cursor`. Les résultats sont triés de la plus récente à la plus ancienne (date de première publication), y compris pour une recherche texte. Aucun brouillon, aucune recette privée et aucune recette d’un compte banni n’y entre. L’API JSON de Manger! reprend ces règles : voir « API Manger! (`/api/v1`) ».
 
 Sémantique des filtres :
 
@@ -155,6 +155,23 @@ Sémantique des filtres :
 - régime : « convient à ». `vegan` garde `vegan` ; `vegetarian` garde `vegan` et `vegetarian` ; `pescetarian` garde les trois ; `omnivore` ne filtre pas ;
 - univers : égalité stricte avec un univers de la liste fermée gérée par les administrateurs ;
 - saisons : au moins une saison commune. Une recette sans saison ne sort jamais d’un filtre de saison.
+
+## API Manger! (`/api/v1`)
+
+Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integration-manger` ; l'import et la vérification côté Manger! viennent ensuite). Session complète exigée pendant la bêta : sans elle, `401` de code `unauthorized` (jamais de redirection). Toutes les réponses portent `cache-control: no-store` (elles dépendent du compte).
+
+| Route | Réponse |
+| --- | --- |
+| `GET /api/v1/recettes` | mêmes paramètres que `/recherche` (`q`, `duree`, `regime`, `univers`, `saison`, `apres`), plus `limite` (1 à 50, 20 par défaut ; une valeur invalide vaut la valeur par défaut). `200 { items: [{ id, title, minutes, diet, author }], next }` ; curseur invalide → `400` `bad_cursor` |
+| `GET /api/v1/recette?id=<id>` | `200` projection de la version publiée (ou, pour son auteur, de sa version privée) ; identifiant invalide, inconnu ou recette privée d'un autre → `404` « Recette introuvable. » ; recette retirée → `410` `removed` « Recette retirée par la modération. » |
+| `GET /api/v1/etat?ids=1,2,3` | 1 à 100 identifiants distincts, séparés par des virgules. `200 { "1": { "state": "published", "version": 3 }, "2": { "state": "removed" } }`, clés = identifiants fournis ; liste vide, élément invalide ou hors limites, doublon ou plus de 100 → `400` `bad_request` |
+| `GET /api/v1/mes-recettes` | `200 { items: [{ id, title, state, version }] }` : recettes du compte en `published` (y compris avec une nouvelle version en attente) ou `private` ; ni brouillon, ni recette en attente, refusée ou retirée |
+
+États : `published` (version publiée), `private` (version privée du demandeur), `removed` (retirée par la modération, y compris par bannissement de l'auteur), `not_found` (inconnue, ou privée d'un autre). `hidden` (masquage temporaire) est réservé : il n'est jamais renvoyé aujourd'hui. Seul `removed` supprime une copie Manger! ; `not_found`, une panne ou `hidden` ne suppriment rien.
+
+Projection d'une recette : `id`, `version`, `visibility` (`public` ou `private`), `title`, `minutes`, `servings`, `diet`, `tags`, `seasons`, `ingredients`, `steps`, `provenance`, `sourceUrl`, `licence`, `author` (nul pour un auteur anonyme), `publishedAt` (nul si privée) et `url` (page de la recette sur FDL). Ni photo, ni note, ni commentaire.
+
+Un état inconnu de Manger! vaut « garder la copie ». Décisions du porteur (2026-11-02) : la tranche `integration-manger` est découpée en 3 plans (A : cette API ; B : liaison de compte par OAuth 2.0 avec PKCE ; C : côté Manger!, import, vérification des versions, suppression) ; pendant la bêta l'API exige une identité (session en A, jeton en B) et l'import sans compte s'ouvrira avec le public ; quand l'auteur supprime lui-même sa recette (ou que la suppression de son compte supprime ses recettes privées), les copies restent (`not_found`).
 
 ## Catalogue
 

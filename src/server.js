@@ -8,6 +8,7 @@ import { createLimiter } from './ratelimit.js';
 import { passkeyRoutes } from './passkeys.js';
 import { sweepPhotos } from './photos.js';
 import { adminRoutes } from './routes/admin.js';
+import { apiRoutes } from './routes/api.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { commentRoutes } from './routes/comments.js';
@@ -54,6 +55,10 @@ export function buildBefore(pool, config) {
     }
     if (PUBLIC_PATHS.has(pathname)) return true;
     if (!request.session?.mfaOk) {
+      if (pathname?.startsWith('/api/')) {
+        sendError(response, 401, 'unauthorized', 'Connexion requise.');
+        return false;
+      }
       redirect(response, request.session ? '/connexion/verification' : '/connexion');
       return false;
     }
@@ -82,6 +87,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...contributionRoutes(pool, config, { limiter }),
     ...commentRoutes(pool, config, { limiter }),
     ...moderationRoutes(pool, config),
+    ...apiRoutes(pool, config),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);

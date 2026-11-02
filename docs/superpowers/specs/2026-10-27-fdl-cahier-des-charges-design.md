@@ -152,7 +152,7 @@ Sécurité **[décidé : « 2FA blindée » ; détail : choix Claude]** :
 
 1. Ce qu'apporte l'adhésion.
 2. Licence du code et licence des recettes publiées (piste : CC BY-SA pour les contenus).
-3. Sort d'une copie Manger! quand l'**auteur** supprime lui-même sa recette.
+3. Sort d'une copie Manger! quand l'**auteur** supprime lui-même sa recette. Tranché par l.user le 2026-11-02 : les copies restent.
 4. Qui sont les modérateurs.
 5. Nom de domaine (piste : sous-domaine de lionlab.fr) et machine d'hébergement précise.
 6. Fournisseur d'envoi d'e-mails.

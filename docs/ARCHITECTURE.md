@@ -42,4 +42,6 @@ Le socle et `acces` sont construits. Le serveur est un seul processus Node.js, a
 
 - **Commentaires** (`commentaires`, construit) : table `comments` (statuts `pending`, `published`, `rejected`, `removed`), logique dans `src/comments.js`, routes dans `src/routes/comments.js`. Même confiance progressive et mêmes filtres de texte que les recettes ; modération dans la file `/moderation` (`decideComment`, transaction avec verrou de ligne). Un commentaire n'est jamais transmis à Manger!.
 
+- **API Manger!** (`integration-manger`, partie A construite) : routes de lecture `/api/v1` dans `src/routes/api.js`, projection et états dans `src/api.js` ; `buildBefore` répond `401` JSON à `/api/` sans session. Les parties B et C (import et vérification côté Manger!) restent à faire. Voir `docs/CONTRATS.md`.
+
 L'interface publique n'est pas encore construite.

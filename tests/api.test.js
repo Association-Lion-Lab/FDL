@@ -6,13 +6,22 @@ import { apiRecipe, recipeStates } from '../src/api.js';
 import { saveDraft, submitVersion } from '../src/contributions.js';
 import { migrate } from '../src/db.js';
 import { publishVersion } from '../src/recipes.js';
+import { createApp } from '../src/http.js';
+import { buildBefore, buildRoutes } from '../src/server.js';
+import { openSession } from '../src/sessions.js';
 import { createTestDatabase } from './helpers/db.js';
 import { recipe } from './helpers/recipes.js';
 
+const config = { origin: 'http://localhost', rpID: 'localhost', secretKey: Buffer.alloc(32, 7) };
 let testDb;
 let pool;
 let me;
+let server;
+let base;
+let cookie;
 let n = 0;
+
+const get = (path, withCookie = cookie) => fetch(`${base}${path}`, { redirect: 'manual', headers: withCookie ? { cookie: withCookie } : {} });
 
 async function account(name = `Membre ${++n}`) {
   const { rows } = await pool.query(
@@ -33,9 +42,17 @@ beforeEach(async () => {
   pool = testDb.pool;
   await migrate(pool);
   me = await account();
+  server = createApp({ routes: buildRoutes(pool, () => {}, config, {}), log: () => {}, before: buildBefore(pool, config) })
+    .listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}`;
+  cookie = `fdl_session=${await openSession(pool, me, { mfaOk: true })}`;
 });
 
-afterEach(() => testDb.drop());
+afterEach(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  await testDb.drop();
+});
 
 describe('recipeStates', () => {
   it('gives each id its state and version', async () => {
@@ -94,5 +111,82 @@ describe('apiRecipe', () => {
     assert.equal(own.recipe.visibility, 'private');
     assert.equal(own.recipe.publishedAt, null);
     assert.deepEqual(await apiRecipe(pool, id, other, 'https://fdl.example'), { state: 'not_found' });
+  });
+});
+
+describe('/api/v1', () => {
+  it('answers 401 JSON without a session', async () => {
+    const response = await get('/api/v1/recettes', null);
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.code, 'unauthorized');
+  });
+
+  it('searches with the site filters and a page size', async () => {
+    await publish(null, { title: 'Soupe un' });
+    await publish(null, { title: 'Soupe deux' });
+    await publish(null, { title: 'Soupe trois' });
+    const first = await get('/api/v1/recettes?limite=2');
+    assert.equal(first.headers.get('cache-control'), 'no-store');
+    const page1 = await first.json();
+    assert.equal(page1.items.length, 2);
+    assert.deepEqual(Object.keys(page1.items[0]), ['id', 'title', 'minutes', 'diet', 'author']);
+    assert.ok(page1.next);
+    const page2 = await (await get(`/api/v1/recettes?limite=2&apres=${page1.next}`)).json();
+    assert.equal(page2.items.length, 1);
+    assert.equal(page2.next, null);
+    const bad = await get('/api/v1/recettes?apres=xx');
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).error.code, 'bad_cursor');
+    assert.equal((await (await get('/api/v1/recettes?q=trois')).json()).items.length, 1);
+    assert.equal((await (await get('/api/v1/recettes?limite=0')).json()).items.length, 3);
+  });
+
+  it('serves a recipe, 404 for unknown or foreign private, 410 once removed', async () => {
+    const other = await account();
+    const pub = await publish(other);
+    const theirs = await submit(other, 'private');
+    const ok = await get(`/api/v1/recette?id=${pub}`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get('cache-control'), 'no-store');
+    assert.equal((await ok.json()).url, `http://localhost/recette?id=${pub}`);
+    for (const id of ['abc', '99999999999999999999', '999999', theirs, '']) {
+      const response = await get(`/api/v1/recette?id=${id}`);
+      assert.equal(response.status, 404, id);
+      assert.equal((await response.json()).error.message, 'Recette introuvable.');
+    }
+    await pool.query("UPDATE recipes SET removed_at = now(), removed_reason = 'x' WHERE id = $1", [pub]);
+    const gone = await get(`/api/v1/recette?id=${pub}`);
+    assert.equal(gone.status, 410);
+    assert.equal((await gone.json()).error.code, 'removed');
+  });
+
+  it('reports states in one call', async () => {
+    const pub = await publish(me);
+    const gone = await publish(me);
+    await pool.query("UPDATE recipes SET removed_at = now(), removed_reason = 'x' WHERE id = $1", [gone]);
+    const response = await get(`/api/v1/etat?ids=${pub},${gone},999`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      [pub]: { state: 'published', version: 1 }, [gone]: { state: 'removed' }, 999: { state: 'not_found' },
+    });
+  });
+
+  it('refuses malformed ids', async () => {
+    for (const ids of ['', 'a', '1,,2', '1,1', Array.from({ length: 101 }, (_, i) => i + 1).join(','), '99999999999999999999']) {
+      assert.equal((await get(`/api/v1/etat?ids=${ids}`)).status, 400, ids);
+    }
+    assert.equal((await get('/api/v1/etat')).status, 400);
+    assert.equal((await get(`/api/v1/etat?ids=${Array.from({ length: 100 }, (_, i) => i + 1).join(',')}`)).status, 200);
+  });
+
+  it('lists my published and private recipes, not my drafts', async () => {
+    const pub = await publish(me);
+    const priv = await submit(me, 'private');
+    await saveDraft(pool, { recipeId: null, authorId: me, draft: recipe() });
+    await publish(await account());
+    const response = await get('/api/v1/mes-recettes');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const { items } = await response.json();
+    assert.deepEqual(items.map(({ id, state, version }) => [String(id), state, version]).sort(), [[priv, 'private', 1], [pub, 'published', 1]].sort());
   });
 });
