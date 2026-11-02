@@ -19,18 +19,20 @@ const FILTER_DIETS = ['vegan', 'vegetarian', 'pescetarian'];
 const MAX_ID = 9223372036854775807n;
 const author = (name) => name ?? 'Auteur anonyme';
 
-const header = (q = '') => html`<header>
+const header = (q = '', role) => html`<header>
 <a href="/">Faim de Lion</a>
 <form method="get" action="/recherche" role="search">
 <label>Rechercher une recette <input name="q" type="search" value="${q}"></label>
 <button type="submit">Rechercher</button>
 </form>
 <a href="/mes-recettes">Mes recettes</a>
+${(role === 'moderator' || role === 'admin') && html`<a href="/moderation">Modération</a>`}
+${role === 'admin' && html`<a href="/admin">Administration</a>`}
 <a href="/compte/securite">Sécurité du compte</a>
 <form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>
 </header>`;
 
-export const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q)}
+export const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q, response.req?.session?.role)}
 ${body}`);
 
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>

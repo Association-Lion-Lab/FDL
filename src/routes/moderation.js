@@ -11,7 +11,7 @@ const FLAGS = { link: 'lien', banned_word: 'mot interdit', duplicate: 'doublon' 
 const parseId = (value) => (/^\d{1,19}$/.test(value) && BigInt(value) <= MAX_ID ? value : null);
 const parseVersion = (value) => (/^\d{1,9}$/.test(value) ? value : null);
 
-const when = (date) => date.toISOString().slice(0, 16).replace('T', ' ');
+const when = (date) => date.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' });
 
 const deny = (response) => show(response, 403, 'Accès refusé', html`<h1>Accès refusé</h1>
 <p>Cette page est réservée à l'équipe de modération.</p>`);

@@ -89,6 +89,18 @@ describe('moderation access', () => {
     assert.equal((await get('/moderation', await account('admin'))).status, 200);
   });
 
+  it('shows the moderation link in the header to staff only', async () => {
+    const link = '<a href="/moderation">Modération</a>';
+    assert.ok((await get('/moderation', mod)).text.includes(link));
+    assert.ok(!(await get('/moderation', author)).text.includes(link));
+  });
+
+  it('shows queue times in Paris time', async () => {
+    const { id } = await pending();
+    await pool.query("UPDATE recipe_versions SET submitted_at = '2026-01-15T10:05:00Z' WHERE recipe_id = $1", [id]);
+    assert.ok((await get('/moderation', mod)).text.includes('15/01/2026 11:05'));
+  });
+
   it('lists the queue with the item, its flags and the open reports', async () => {
     const { id } = await pending({ title: 'Liste <b>x</b>' });
     await pool.query("INSERT INTO reports (recipe_id, reporter_id, category, detail) VALUES ($1, $2, 'spam', '<i>pub</i>')", [id, author.id]);

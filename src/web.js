@@ -91,8 +91,9 @@ export async function readBody(request, { max = 16 * 1024 } = {}) {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     throw httpError(400, 'bad_request', 'Requête invalide.');
   }
-  // JSON.stringify writes any NUL, in a key or a value, back as \u0000.
-  if (JSON.stringify(data).includes('\\u0000')) throw nul();
+  // JSON.stringify writes any NUL, in a key or a value, back as \u0000, and a lone surrogate
+  // (which jsonb refuses too) as \ud800 to \udfff.
+  if (/\\u(0000|d[89a-f])/.test(JSON.stringify(data))) throw nul();
   return data;
 }
 

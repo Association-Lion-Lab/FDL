@@ -9,7 +9,7 @@ import { clientIp, field, form, tooMany } from './auth.js';
 const copyScript = readFileSync(new URL('../static/fdl-copy.js', import.meta.url));
 const ROLES = ['member', 'adherent', 'moderator', 'admin'];
 const STATES = { pending: 'en attente', used: 'utilisée', expired: 'expirée', revoked: 'révoquée' };
-const when = (date) => (date ? date.toISOString().slice(0, 16).replace('T', ' ') : '');
+const when = (date) => (date ? date.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }) : '');
 
 // Only paths under /admin (or exactly /compte/securite), resolved so dot segments (also %2e) cannot
 // climb out: anything else (absolute URL, //host, /admin@host, /admin/../x) falls back to /admin.

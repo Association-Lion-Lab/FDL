@@ -133,6 +133,8 @@ describe('request guards', () => {
       ['application/x-www-form-urlencoded', 'a%00=1'],
       ['application/json', '{"name":"a\\u0000b"}'],
       ['application/json', '{"a\\u0000":1}'],
+      ['application/json', '{"name":"a\\ud800b"}'],
+      ['application/json', '{"\\udfff":1}'],
     ]) {
       const response = await post(type, body);
       assert.equal(response.status, 400, body);
