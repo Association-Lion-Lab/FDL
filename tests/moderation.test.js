@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -141,10 +141,10 @@ describe('decisions', () => {
       const file = await savePhoto(dataDir, Buffer.from('jpeg bytes'));
       const target = await pending({ photo: { file, credit: 'Léa' } });
       assert.ok((await get(`/moderation/version?id=${target.id}&version=${target.version}`, mod)).text.includes(`<img src="/photo?f=${file}"`));
+      // Aged past the grace period, the file goes with the route's own sweep.
+      const hourAgo = new Date(Date.now() - 3600000);
+      await utimes(photoPath(dataDir, file), hourAgo, hourAgo);
       assert.equal((await post({ kind: 'remove', id: target.id, motif: 'Non' })).status, 303);
-      // The route's own sweep spares a fresh file; a later one deletes it.
-      await access(photoPath(dataDir, file));
-      assert.equal(await sweepPhotos(pool, dataDir, { now: Date.now() + 3600000 }), 1);
       await assert.rejects(access(photoPath(dataDir, file)), { code: 'ENOENT' });
     } finally {
       config.dataDir = saved;

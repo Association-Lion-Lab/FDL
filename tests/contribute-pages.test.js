@@ -223,6 +223,14 @@ describe('recipe photo', () => {
     return Buffer.concat(parts);
   };
 
+  it('answers a friendly HTML 413 above the body cap', async () => {
+    const sent = await postForm(full('brouillon'), { photo: Buffer.alloc(8 * 1024 * 1024 + 300 * 1024) });
+    assert.equal(sent.status, 413);
+    assert.match(sent.response.headers.get('content-type'), /text\/html/);
+    assert.ok(sent.text.includes('Photo trop lourde'));
+    assert.equal(await versions(), 0);
+  });
+
   it('shows the photo fields in a multipart form', async () => {
     const form = (await get('/mes-recettes/edition')).text;
     assert.match(form, /<form[^>]*enctype="multipart\/form-data"/);

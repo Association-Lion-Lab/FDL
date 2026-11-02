@@ -36,7 +36,7 @@ Le socle et `acces` sont construits. Le serveur est un seul processus Node.js, a
 
 - **Accès** (`acces`, construit) : invitations et réinitialisations par lien à usage unique (seul le hachage du jeton est stocké), mots de passe `scrypt`, sessions en base (cookie `fdl_session`, 30 jours pour un membre, 12 heures pour un `moderator` ou `admin`), code à 6 chiffres (TOTP, secret chiffré en `aes-256-gcm` avec `FDL_SECRET_KEY`), clés d'accès (WebAuthn) et codes de récupération. Un `moderator` ou `admin` doit avoir une clé d'accès ; les actions d'administration exigent une confirmation de moins de 5 minutes. Les limites d'essais sont en mémoire, par processus. Dépendances ajoutées : `@simplewebauthn/server`, `@simplewebauthn/browser`, `otpauth`, `uqr`. Routes dans `docs/CONTRATS.md`.
 - **Journaux** : le journal d'administration est en base (table `admin_log`, page `/admin/journal`). Le journal de sécurité est le fichier `logs/securite.log` du dossier de données, une ligne JSON par événement, exclu des sauvegardes. Voir `docs/EXPLOITATION.md`.
-- **Protection** : tout `POST` dont `Origin` diffère de `FDL_ORIGIN` est refusé (`bad_origin`) ; les corps sont limités à 16 Kio.
+- **Protection** : tout `POST` dont `Origin` diffère de `FDL_ORIGIN` est refusé (`bad_origin`) ; les corps sont limités à 16 Kio, sauf le formulaire d'édition de recette (`POST /mes-recettes/edition`), limité à 256 Kio + 8 Mio pour porter la photo.
 
 - **Photos** (`photos`, construit) : un JPEG par recette, nettoyé de ses métadonnées par une liste de segments autorisés, stocké sous `photos/<sha256>.jpg` dans le dossier de données et servi par `GET /photo` selon la visibilité de la version. Un nettoyage supprime les fichiers orphelins de plus de 10 minutes. Voir `docs/CONTRATS.md`.
 

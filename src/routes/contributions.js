@@ -184,7 +184,16 @@ ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
     },
 
     'POST /mes-recettes/edition': async (request, response) => {
-      const { body, files } = await readForm(request, { max: 256 * 1024 + 8 * 1024 * 1024 });
+      let form;
+      try {
+        form = await readForm(request, { max: 256 * 1024 + 8 * 1024 * 1024 });
+      } catch (error) {
+        if (error.code !== 'payload_too_large') throw error;
+        return show(response, 413, 'Photo trop lourde', html`<h1>Photo trop lourde</h1>
+<p class="error" role="alert">La photo dépasse 8 Mo et le texte saisi n'a pas été enregistré. Choisissez une image plus petite, ou activez JavaScript pour que la photo soit réduite automatiquement.</p>
+<p><a href="/mes-recettes">Retour à mes recettes</a></p>`);
+      }
+      const { body, files } = form;
       const authorId = request.session.accountId;
       const action = field(body, 'action');
       let id = null;
@@ -212,7 +221,8 @@ ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
       draft.photo = !removing && file ? { file, credit: field(body, 'photo_credit').trim() } : null;
       try {
         ({ id } = await saveDraft(pool, { recipeId: id, authorId, draft }));
-        if (upload || removing) await sweepPhotos(pool, config.dataDir);
+        // The draft is saved; a failed sweep must not turn that into a 500.
+        if (upload || removing) await sweepPhotos(pool, config.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
         const again = async (error, status = 400, more = false) => formPage(response, { id, draft, universes: await listUniverses(pool), error, status, more });
         if (photoError) return await again(photoError);
         if (action === 'lignes') return await again(null, 200, true);
