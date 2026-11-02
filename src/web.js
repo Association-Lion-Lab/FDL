@@ -91,6 +91,42 @@ export async function readBody(request, { max = 16 * 1024 } = {}) {
   return data;
 }
 
+// Urlencoded or multipart form; files come back as Buffers, an empty file input is dropped.
+export async function readForm(request, { max = 16 * 1024 } = {}) {
+  const header = request.headers['content-type'] ?? '';
+  const type = header.split(';')[0].trim().toLowerCase();
+  if (type === 'application/x-www-form-urlencoded') return { body: await readBody(request, { max }), files: new Map() };
+  if (type !== 'multipart/form-data') throw httpError(400, 'bad_request', 'Type de contenu non pris en charge.');
+  const declared = Number(request.headers['content-length']);
+  if (declared > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > max) throw httpError(413, 'payload_too_large', 'Requête trop volumineuse.');
+    chunks.push(chunk);
+  }
+  const bad = () => httpError(400, 'bad_request', 'Requête invalide.');
+  let data;
+  try {
+    data = await new Request('http://x', { method: 'POST', headers: { 'content-type': header }, body: Buffer.concat(chunks) }).formData();
+  } catch {
+    throw bad();
+  }
+  const body = new URLSearchParams();
+  const files = new Map();
+  for (const [key, value] of data) {
+    if (key.includes('\0')) throw bad();
+    if (typeof value === 'string') {
+      if (value.includes('\0')) throw bad();
+      body.append(key, value);
+    } else if (value.size) {
+      files.set(key, Buffer.from(await value.arrayBuffer()));
+    }
+  }
+  return { body, files };
+}
+
 // `cookies` is an optional Set-Cookie string or array of them.
 export function redirect(response, location, cookies = []) {
   const headers = { location };

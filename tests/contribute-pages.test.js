@@ -1,15 +1,20 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { saveDraft, submitVersion } from '../src/contributions.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
+import { stripJpeg } from '../src/photos.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
 import { openSession } from '../src/sessions.js';
 import { createTestDatabase } from './helpers/db.js';
+import { jpeg } from './helpers/photos.js';
 import { recipe } from './helpers/recipes.js';
 
-const config = { origin: 'http://localhost', rpID: 'localhost', secretKey: Buffer.alloc(32, 7), dataDir: '/nonexistent-fdl-data' };
+const config = { origin: 'http://localhost', rpID: 'localhost', secretKey: Buffer.alloc(32, 7), dataDir: '' };
 let testDb;
 let pool;
 let server;
@@ -27,6 +32,7 @@ async function member() {
 }
 
 beforeEach(async () => {
+  config.dataDir = await mkdtemp(join(tmpdir(), 'fdl-pages-'));
   testDb = await createTestDatabase();
   pool = testDb.pool;
   await migrate(pool);
@@ -41,6 +47,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await new Promise((resolve) => server.close(resolve));
   await testDb.drop();
+  await rm(config.dataDir, { recursive: true, force: true });
 });
 
 const get = async (path, who = me) => {
@@ -54,6 +61,19 @@ const post = async (fields, who = me) => {
     method: 'POST',
     redirect: 'manual',
     headers: { cookie: who.cookie, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  return { status: response.status, text: await response.text(), response };
+};
+// Multipart send; `files` maps a field name to a Buffer.
+const postForm = async (fields, files = {}, who = me, type = 'image/jpeg') => {
+  const body = new FormData();
+  for (const [key, value] of fields) body.append(key, value);
+  for (const [key, buffer] of Object.entries(files)) body.append(key, new Blob([buffer], { type }), 'photo.jpg');
+  const response = await fetch(`${base}/mes-recettes/edition`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { cookie: who.cookie, origin: config.origin },
     body,
   });
   return { status: response.status, text: await response.text(), response };
@@ -161,6 +181,13 @@ describe('author pages', () => {
     assert.ok(Date.now() - started < 3000, `${Date.now() - started} ms`);
   });
 
+  it('reads 20 000 empty multipart lines in linear time', async () => {
+    const started = Date.now();
+    const sent = await postForm(full('brouillon', {}, Array(20000).fill(['ingredient_name', ''])));
+    assert.equal(sent.status, 303);
+    assert.ok(Date.now() - started < 3000, `${Date.now() - started} ms`);
+  });
+
   it('escapes HTML in a draft title on the list and in the form', async () => {
     const sent = await post(full('brouillon', { title: '<script>x</script>' }));
     assert.equal(sent.status, 303);
@@ -171,5 +198,114 @@ describe('author pages', () => {
     const form = await get(`/mes-recettes/edition?id=${rows[0].id}`);
     assert.ok(!form.text.includes('<script>x</script>'));
     assert.ok(form.text.includes('&lt;script&gt;x&lt;/script&gt;'));
+  });
+});
+
+describe('recipe photo', () => {
+  const photos = () => readdir(join(config.dataDir, 'photos')).catch(() => []);
+  const draftPhoto = async (id) => (await pool.query('SELECT draft->\'photo\' AS photo FROM recipes WHERE id = $1', [id])).rows[0].photo;
+  const upload = (extra = [], file = jpeg(), type = 'image/jpeg') => postForm(full('brouillon', {}, extra), { photo: file }, me, type);
+  const firstId = async () => (await pool.query('SELECT id FROM recipes ORDER BY id LIMIT 1')).rows[0].id;
+  // A JPEG padded with COM segments up to `size` bytes.
+  const padded = (size) => {
+    const base = jpeg();
+    const parts = [base.subarray(0, 2)];
+    let remaining = size - base.length;
+    while (remaining > 0) {
+      const part = remaining > 65541 ? 65537 : remaining > 65537 ? remaining - 4 : remaining;
+      const com = Buffer.alloc(part);
+      com.writeUInt16BE(0xfffe, 0);
+      com.writeUInt16BE(part - 2, 2);
+      parts.push(com);
+      remaining -= part;
+    }
+    parts.push(base.subarray(2));
+    return Buffer.concat(parts);
+  };
+
+  it('shows the photo fields in a multipart form', async () => {
+    const form = (await get('/mes-recettes/edition')).text;
+    assert.match(form, /<form[^>]*enctype="multipart\/form-data"/);
+    for (const name of ['photo', 'photo_credit', 'atteste_photo']) assert.equal(count(form, name), 1, name);
+  });
+
+  it('stores a stripped photo, then keeps it and updates the credit without a new file', async () => {
+    const sent = await upload([['photo_credit', 'Léa']]);
+    assert.equal(sent.status, 303);
+    const names = await photos();
+    assert.equal(names.length, 1);
+    const stored = await readFile(join(config.dataDir, 'photos', names[0]));
+    assert.deepEqual(stored, stripJpeg(jpeg()));
+    assert.ok(!stored.includes('GPSLatitude'));
+    const id = await firstId();
+    const file = names[0].slice(0, -4);
+    assert.deepEqual(await draftPhoto(id), { file, credit: 'Léa' });
+    const again = await postForm([['id', String(id)], ...full('brouillon', {}, [['photo_credit', 'Léa B.']])]);
+    assert.equal(again.status, 303);
+    assert.deepEqual(await draftPhoto(id), { file, credit: 'Léa B.' });
+    const form = await get(`/mes-recettes/edition?id=${id}`);
+    assert.ok(form.text.includes(`/photo?f=${file}`));
+    assert.ok(form.text.includes('value="Léa B."'));
+  });
+
+  it("ignores a photo_file naming another account's photo", async () => {
+    await postForm(full('brouillon', {}, [['photo_credit', 'Eve']]), { photo: jpeg() }, other);
+    const theirs = (await photos())[0].slice(0, -4);
+    await postForm(full('brouillon', {}, [['photo_file', theirs], ['photo_credit', 'X']]));
+    const { rows } = await pool.query('SELECT draft->\'photo\' AS photo FROM recipes WHERE author_id = $1', [me.id]);
+    assert.equal(rows[0].photo, null);
+  });
+
+  it('removes the photo on retirer_photo', async () => {
+    await upload([['photo_credit', 'Léa']]);
+    const id = await firstId();
+    assert.equal((await postForm([['id', String(id)], ...full('brouillon', {}, [['retirer_photo', '1']])])).status, 303);
+    assert.equal(await draftPhoto(id), null);
+  });
+
+  it('refuses a non-JPEG file with 400, keeps the title and stores nothing', async () => {
+    const sent = await upload([], Buffer.from('<html></html>'));
+    assert.equal(sent.status, 400);
+    assert.ok(sent.text.includes('La photo doit être une image JPEG de 8 000 pixels de côté au plus.'));
+    assert.deepEqual(await photos(), []);
+    assert.equal((await pool.query('SELECT draft->>\'title\' AS t FROM recipes')).rows[0].t, 'Soupe');
+  });
+
+  it('refuses a file over 1 MiB with 400, keeps the title and stores nothing', async () => {
+    const big = padded(1024 * 1024 + 1);
+    assert.equal(big.length, 1024 * 1024 + 1);
+    const sent = await upload([], big);
+    assert.equal(sent.status, 400);
+    assert.ok(sent.text.includes('La photo dépasse 1 Mo.'));
+    assert.deepEqual(await photos(), []);
+    assert.equal((await pool.query('SELECT draft->>\'title\' AS t FROM recipes')).rows[0].t, 'Soupe');
+    assert.equal((await upload([], padded(1024 * 1024))).status, 303);
+  });
+
+  it('asks for the photo attestation on publication, then writes the version with the photo', async () => {
+    const publish = (extra) => postForm(full('publier', {}, [['photo_credit', 'Léa'], ['atteste_texte', '1'], ...extra]), { photo: jpeg() });
+    const refused = await publish([]);
+    assert.equal(refused.status, 400);
+    assert.ok(refused.text.includes('J&#39;ai pris cette photo ou j&#39;ai le droit de la publier'));
+    assert.equal(await versions(), 0);
+    const id = await firstId();
+    const sent = await postForm([['id', String(id)], ...full('publier', {}, [['photo_credit', 'Léa'], ['atteste_texte', '1'], ['atteste_photo', '1']])]);
+    assert.equal(sent.status, 303);
+    const { rows } = await pool.query('SELECT photo, photo_credit FROM recipe_versions WHERE recipe_id = $1 AND version = 1', [id]);
+    assert.equal(rows[0].photo, (await photos())[0].slice(0, -4));
+    assert.equal(rows[0].photo_credit, 'Léa');
+  });
+
+  it('refuses publication of a photo without credit', async () => {
+    const sent = await postForm(full('publier', {}, [['atteste_texte', '1'], ['atteste_photo', '1']]), { photo: jpeg() });
+    assert.equal(sent.status, 400);
+    assert.ok(sent.text.includes("Indiquez l&#39;auteur de la photo"));
+    assert.equal(await versions(), 0);
+  });
+
+  it('limits photo uploads to 10 per quarter hour, and counts only requests with a file', async () => {
+    for (let i = 0; i < 12; i++) assert.equal((await postForm(full('brouillon'))).status, 303);
+    for (let i = 0; i < 10; i++) assert.equal((await upload([['photo_credit', 'a']])).status, 303, `upload ${i + 1}`);
+    assert.equal((await upload([['photo_credit', 'a']])).status, 429);
   });
 });

@@ -1,6 +1,7 @@
 import { getOwnRecipe, listMine, saveDraft, submitVersion } from '../contributions.js';
 import { DIETS, SEASONS, VISIBLE, listUniverses } from '../recipes.js';
-import { html, readBody, redirect } from '../web.js';
+import { savePhoto, stripJpeg, sweepPhotos } from '../photos.js';
+import { html, readBody, readForm, redirect } from '../web.js';
 import { clientIp, field, tooMany } from './auth.js';
 import { DIET_LABELS, SEASON_LABELS, STATE_LABELS, STEP_LABELS, show } from './catalogue.js';
 
@@ -9,6 +10,10 @@ const PREPARATION_OPTIONS = { unknown: 'non précisée', raw: 'cru', cooked: 'cu
 const REPORT_CATEGORIES = {
   illegal: 'Contenu illégal', copyright: "Atteinte aux droits d'auteur", off_topic: 'Hors sujet', spam: 'Publicité ou spam', other: 'Autre',
 };
+const ATTEST_PHOTO = "J'ai pris cette photo ou j'ai le droit de la publier";
+const PHOTO_INVALID = 'La photo doit être une image JPEG de 8 000 pixels de côté au plus.';
+const PHOTO_TOO_BIG = "La photo dépasse 1 Mo. Activez JavaScript pour qu'elle soit réduite automatiquement, ou envoyez une image plus petite.";
+const MAX_PHOTO = 1024 * 1024;
 const ATTEST = "Je suis l'auteur de ce texte ou j'ai le droit de le publier sous licence CC BY-SA 4.0";
 
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>
@@ -60,7 +65,7 @@ function formPage(response, { id, draft, universes, error = null, status = 200, 
   const seasons = draft.seasons ?? [];
   show(response, status, 'Écrire une recette', html`<h1>Écrire une recette</h1>
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
-<form method="post" action="/mes-recettes/edition">
+<form method="post" action="/mes-recettes/edition" enctype="multipart/form-data">
 <input type="hidden" name="id" value="${id ?? ''}">
 <label>Titre <input name="title" value="${draft.title ?? ''}"></label>
 <label>Durée (minutes) <input name="minutes" value="${draft.minutes ?? ''}"></label>
@@ -74,6 +79,10 @@ ${universes.map((u) => option(u.slug, u.label, draft.universe === u.slug))}</sel
 <label>Étiquettes (séparées par des virgules) <input name="tags" value="${(draft.tags ?? []).join(', ')}"></label>
 <label>Provenance <input name="provenance" value="${draft.provenance ?? ''}"></label>
 <label>Lien source <input name="source_url" value="${draft.sourceUrl ?? ''}"></label>
+${draft.photo ? html`<p><img src="/photo?f=${draft.photo.file}" alt="Photo actuelle" class="preview">
+<label><input type="checkbox" name="retirer_photo" value="1"> Retirer la photo</label></p>` : ''}
+<label>Photo (JPEG) <input type="file" name="photo" accept="image/jpeg"></label>
+<label>Auteur de la photo <input name="photo_credit" maxlength="80" value="${draft.photo?.credit ?? ''}"></label>
 <fieldset><legend>Ingrédients</legend>
 ${ingredients.map((i) => html`<p><label>Nom <input name="ingredient_name" value="${i.name ?? ''}"></label>
 <label>Quantité <input name="ingredient_amount" value="${i.amount ?? ''}"></label>
@@ -86,11 +95,13 @@ ${steps.map((s) => html`<p><label>Type <select name="step_kind">${Object.entries
 <label>Minutes <input name="step_minutes" value="${s.minutes ?? ''}"></label></p>
 `)}</fieldset>
 <label><input type="checkbox" name="atteste_texte" value="1"> ${ATTEST}</label>
+<label><input type="checkbox" name="atteste_photo" value="1"> ${ATTEST_PHOTO}</label>
 <button type="submit" name="action" value="lignes">Ajouter des lignes</button>
 <button type="submit" name="action" value="brouillon">Enregistrer le brouillon</button>
 <button type="submit" name="action" value="privee">Garder privée</button>
 <button type="submit" name="action" value="publier">Publier</button>
-</form>`);
+</form>
+<script src="/static/fdl-photo.js"></script>`);
 }
 
 function reportPage(response, id, { error = null, status = 200 } = {}) {
@@ -173,22 +184,41 @@ ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
     },
 
     'POST /mes-recettes/edition': async (request, response) => {
-      const body = await readBody(request, { max: 256 * 1024 });
+      const { body, files } = await readForm(request, { max: 256 * 1024 + 8 * 1024 * 1024 });
       const authorId = request.session.accountId;
       const action = field(body, 'action');
       let id = null;
+      let previous = null;
       if (field(body, 'id') !== '') {
         id = parseId(field(body, 'id'));
         if (!id) return notFound(response);
+        // The previous photo comes from the stored recipe, never from the form.
+        const own = await getOwnRecipe(pool, { recipeId: id, authorId });
+        if (!own || own.state === 'removed') return notFound(response);
+        previous = own.draft?.photo ?? own.latest?.photo ?? null;
       }
       const draft = draftFrom(body);
+      let file = previous?.file ?? null;
+      let photoError = null;
+      const upload = files.get('photo');
+      if (upload) {
+        if (limiter.hit(`photo:${authorId}`, { scope: 'photo', accountId: authorId, ip: clientIp(request) })) return tooMany(response);
+        const stripped = upload.length > MAX_PHOTO ? null : stripJpeg(upload);
+        if (stripped) file = await savePhoto(config.dataDir, stripped);
+        else photoError = upload.length > MAX_PHOTO ? PHOTO_TOO_BIG : PHOTO_INVALID;
+      }
+      const removing = field(body, 'retirer_photo') === '1';
+      draft.photo = !removing && file ? { file, credit: field(body, 'photo_credit').trim() } : null;
       try {
         ({ id } = await saveDraft(pool, { recipeId: id, authorId, draft }));
+        if (upload || removing) await sweepPhotos(pool, config.dataDir);
         const again = async (error, status = 400, more = false) => formPage(response, { id, draft, universes: await listUniverses(pool), error, status, more });
+        if (photoError) return await again(photoError);
         if (action === 'lignes') return await again(null, 200, true);
         if (action === 'brouillon') return redirect(response, '/mes-recettes');
         if (action !== 'privee' && action !== 'publier') return await again('Action inconnue.');
         if (action === 'publier' && field(body, 'atteste_texte') !== '1') return await again(`Cochez la case : ${ATTEST}.`);
+        if (action === 'publier' && draft.photo && field(body, 'atteste_photo') !== '1') return await again(`Cochez la case : ${ATTEST_PHOTO}.`);
         try {
           await submitVersion(pool, { recipeId: id, authorId, mode: action === 'publier' ? 'public' : 'private', dataDir: config.dataDir });
         } catch (error) {

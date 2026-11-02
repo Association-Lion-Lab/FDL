@@ -3,7 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 
 import { createApp } from '../src/http.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
-import { html, raw, readBody, sendPage } from '../src/web.js';
+import { html, raw, readBody, readForm, sendPage } from '../src/web.js';
 
 const servers = [];
 const config = { origin: 'http://localhost' };
@@ -138,6 +138,47 @@ describe('request guards', () => {
       assert.equal(response.status, 400, body);
       assert.equal((await response.json()).error.code, 'bad_request', body);
     }
+  });
+
+  describe('readForm', () => {
+    const form = async (request, response) => {
+      const { body, files } = await readForm(request, { max: 64 * 1024 });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ title: body.get('title'), sizes: [...files].map(([k, v]) => [k, v.length]) }));
+    };
+    const send = async (data, headers = {}) => {
+      const base = await start(null, { 'POST /connexion': form });
+      return fetch(`${base}/connexion`, { method: 'POST', headers: { origin: 'http://localhost', ...headers }, body: data });
+    };
+
+    it('reads text fields and a file from multipart', async () => {
+      const data = new FormData();
+      data.append('title', 'Pâtes');
+      data.append('photo', new Blob([Buffer.from([1, 2, 3, 4])]), 'a.jpg');
+      const result = await (await send(data)).json();
+      assert.equal(result.title, 'Pâtes');
+      assert.deepEqual(result.sizes, [['photo', 4]]);
+    });
+
+    it('drops an empty file input and still reads urlencoded', async () => {
+      const data = new FormData();
+      data.append('photo', new Blob([]), '');
+      assert.deepEqual((await (await send(data)).json()).sizes, []);
+      const plain = await send('title=x', { 'content-type': 'application/x-www-form-urlencoded' });
+      assert.equal((await plain.json()).title, 'x');
+    });
+
+    it('answers 400 on unreadable multipart, a wrong type and a NUL, 413 above max', async () => {
+      const bad = await send("n'importe quoi", { 'content-type': 'multipart/form-data; boundary=x' });
+      assert.equal(bad.status, 400);
+      assert.equal((await send('{}', { 'content-type': 'application/json' })).status, 400);
+      const nul = new FormData();
+      nul.append('title', 'a\0b');
+      assert.equal((await send(nul)).status, 400);
+      const big = new FormData();
+      big.append('photo', new Blob([Buffer.alloc(65 * 1024)]), 'a.jpg');
+      assert.equal((await send(big)).status, 413);
+    });
   });
 
   it('redirects anonymous visitors to /connexion, even for unknown paths', async () => {
