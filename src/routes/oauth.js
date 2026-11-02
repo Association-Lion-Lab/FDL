@@ -25,7 +25,7 @@ export function oauthRoutes(pool) {
     response.setHeader('cache-control', 'no-store');
     sendJson(response, status, body);
   };
-  const fail = (response, error) => token(response, 400, { error });
+  const fail = (response, error, error_description) => token(response, 400, { error, error_description });
 
   return {
     'GET /oauth/autoriser': (request, response) => {
@@ -54,12 +54,12 @@ ${FIELDS.filter((name) => params.has(name)).map((name) => html`<input type="hidd
 
     'POST /oauth/jeton': async (request, response) => {
       const body = await readBody(request).catch(() => null);
-      if (!(body instanceof URLSearchParams)) return fail(response, 'invalid_request');
-      if (body.get('grant_type') !== 'authorization_code') return fail(response, 'unsupported_grant_type');
+      if (!(body instanceof URLSearchParams)) return fail(response, 'invalid_request', 'Corps urlencodé attendu.');
+      if (body.get('grant_type') !== 'authorization_code') return fail(response, 'unsupported_grant_type', 'Seul authorization_code est accepté.');
       const [code, clientId, redirectUri, verifier] = ['code', 'client_id', 'redirect_uri', 'code_verifier'].map((name) => body.get(name));
-      if (!code || !clientId || !redirectUri || !verifier) return fail(response, 'invalid_request');
+      if (!code || !clientId || !redirectUri || !verifier) return fail(response, 'invalid_request', 'Paramètre manquant ou invalide.');
       const access = await exchangeCode(pool, { code, clientId, redirectUri, verifier });
-      if (!access) return fail(response, 'invalid_grant');
+      if (!access) return fail(response, 'invalid_grant', 'Code invalide, expiré ou déjà utilisé.');
       token(response, 200, { access_token: access, token_type: 'Bearer' });
     },
   };

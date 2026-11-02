@@ -59,11 +59,12 @@ export function buildBefore(pool, config, { limiter = createLimiter({ max: 300 }
     }
     const api = pathname?.startsWith('/api/');
     const tooMany = () => sendError(response, 429, 'rate_limited', 'Trop de requêtes. Réessayez plus tard.');
+    if (pathname === '/oauth/jeton') response.setHeader('cache-control', 'no-store');
     if ((api || pathname === '/oauth/jeton') && limiter.hit(`api-ip:${clientIp(request)}`)) {
       tooMany();
       return false;
     }
-    const bearer = api && request.headers.authorization?.startsWith('Bearer ');
+    const bearer = api && request.headers.authorization?.match(/^bearer /i);
     if (bearer) {
       request.session = await loadToken(pool, request.headers.authorization.slice(7));
       if (request.session && limiter.hit(`api-client:${request.session.clientId}`)) {

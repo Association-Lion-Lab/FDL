@@ -119,7 +119,9 @@ describe('HTTP', () => {
     assert.equal((await (await tokenCall({ grant_type: 'authorization_code' })).json()).error, 'invalid_request');
     const bad = await tokenCall({ grant_type: 'authorization_code', code: 'x', client_id: client, redirect_uri: `${client}/fdl/retour`, code_verifier: verifier });
     assert.equal(bad.status, 400);
-    assert.equal((await bad.json()).error, 'invalid_grant');
+    const body = await bad.json();
+    assert.equal(body.error, 'invalid_grant');
+    assert.ok(typeof body.error_description === 'string' && body.error_description);
   });
 
   it('refuses an unknown token with 401 and www-authenticate', async () => {
@@ -156,6 +158,13 @@ describe('HTTP', () => {
     assert.equal((await bearer(0, '2.2.2.2')).status, 200);
     assert.equal((await bearer(1, '3.3.3.3')).status, 200);
     assert.equal((await bearer(0, '4.4.4.4')).status, 429);
+    assert.equal((await fetch(`${base}/api/v1/mes-recettes`, { headers: { authorization: `bearer ${tokens[1]}`, 'x-forwarded-for': '5.5.5.5' } })).status, 429);
+
+    await new Promise((resolve) => server.close(resolve));
+    [server, base] = await start({ limiter: createLimiter({ max: 0 }) });
+    const jeton = await tokenCall({ grant_type: 'password' });
+    assert.equal(jeton.status, 429);
+    assert.equal(jeton.headers.get('cache-control'), 'no-store');
   });
 });
 
