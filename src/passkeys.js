@@ -7,7 +7,7 @@ import { createRecoveryCodes, hasSecondFactor } from './mfa.js';
 import { createLimiter } from './ratelimit.js';
 import { clientIp, promoteSession } from './routes/auth.js';
 import { elevateSession, factorChangeNeedsElevation } from './sessions.js';
-import { readBody } from './web.js';
+import { landing, readBody } from './web.js';
 
 const browserBundle = readFileSync(new URL('../node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js', import.meta.url));
 const clientScript = readFileSync(new URL('./static/fdl-passkeys.js', import.meta.url));
@@ -161,7 +161,7 @@ export function passkeyRoutes(pool, config, lib = simplewebauthnServer, { limite
     'POST /cles/connexion/options': authOptions(false),
     'POST /cles/connexion/verification': assertion(false, async (request, response) => {
       response.setHeader('set-cookie', await promoteSession(pool, request.session, request, securityLog));
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, { ok: true, suite: landing(request) });
     }),
 
     // Re-authentication of a full staff session (/admin/confirmation).

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
+import { hashPassword } from '../src/accounts.js';
 import { migrate } from '../src/db.js';
 import { createApp } from '../src/http.js';
 import { createCode, exchangeCode, listLinks, loadToken, parseAuthorization, revokeLink } from '../src/oauth.js';
 import { createLimiter } from '../src/ratelimit.js';
 import { buildBefore, buildRoutes } from '../src/server.js';
 import { openSession } from '../src/sessions.js';
+import { landing } from '../src/web.js';
 import { createTestDatabase } from './helpers/db.js';
 
 let testDb;
@@ -136,6 +138,34 @@ describe('HTTP', () => {
     assert.match(response.headers.get('set-cookie'), /^fdl_suite=%2Foauth%2Fautoriser%3F/);
   });
 
+  it('sends a password sign-in back to the authorization page', async () => {
+    await pool.query('UPDATE accounts SET password_hash = $2 WHERE id = $1', [me, await hashPassword('un mot de passe solide')]);
+    const suite = `/oauth/autoriser?${query()}`;
+    const signIn = (headers) => fetch(`${base}/connexion`, {
+      method: 'POST', redirect: 'manual', body: new URLSearchParams({ email: 'me@example.org', password: 'un mot de passe solide' }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'http://localhost', ...headers },
+    });
+    const response = await signIn({ cookie: `fdl_suite=${encodeURIComponent(suite)}` });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('location'), suite);
+    assert.equal((await signIn({})).headers.get('location'), '/');
+  });
+
+  it('lists and revokes a linked instance from /compte/securite', async () => {
+    const code = await createCode(pool, { accountId: me, clientId: client, redirectUri: `${client}/fdl/retour`, challenge });
+    const token = await exchangeCode(pool, { code, clientId: client, redirectUri: `${client}/fdl/retour`, verifier });
+    const page = await (await get('/compte/securite')).text();
+    assert.match(page, /https:\/\/manger\.exemple\.fr/);
+    assert.match(page, /Retirer l'accès/);
+    const answer = await post('/compte/securite/manger/retrait', { client_id: client });
+    assert.equal(answer.status, 200);
+    const after = await answer.text();
+    assert.match(after, /Accès retiré\./);
+    assert.match(after, /Aucune instance reliée\./);
+    const api = await fetch(`${base}/api/v1/mes-recettes`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(api.status, 401);
+  });
+
   it('limits by address and by instance', async () => {
     await new Promise((resolve) => server.close(resolve));
     [server, base] = await start({ limiter: createLimiter({ max: 2 }) });
@@ -165,6 +195,16 @@ describe('HTTP', () => {
     const jeton = await tokenCall({ grant_type: 'password' });
     assert.equal(jeton.status, 429);
     assert.equal(jeton.headers.get('cache-control'), 'no-store');
+  });
+});
+
+describe('landing', () => {
+  it('lands on the authorization page after signing in, never elsewhere', () => {
+    const req = (cookie) => ({ headers: { cookie } });
+    assert.equal(landing(req(`fdl_suite=${encodeURIComponent('/oauth/autoriser?client_id=x')}`)), '/oauth/autoriser?client_id=x');
+    for (const cookie of [undefined, 'fdl_suite=%2Fadmin', `fdl_suite=${encodeURIComponent('https://evil.example/oauth/autoriser?')}`, 'fdl_suite=%E0%A4%A', 'fdl_suite=%2Foauth%2Fautoriser%3F%0D%0Ax']) {
+      assert.equal(landing(req(cookie)), '/', cookie);
+    }
   });
 });
 

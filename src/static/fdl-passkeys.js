@@ -51,8 +51,8 @@ document.getElementById('passkey-login')?.addEventListener('click', async () => 
   try {
     const optionsJSON = await send('/cles/connexion/options');
     const assertion = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON });
-    await send('/cles/connexion/verification', { response: assertion });
-    location.href = '/';
+    const result = await send('/cles/connexion/verification', { response: assertion });
+    location.href = result.suite ?? '/';
   } catch (error) {
     show(explain(error));
   }

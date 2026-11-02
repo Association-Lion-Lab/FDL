@@ -141,3 +141,13 @@ export function parseCookies(request) {
   }
   return out;
 }
+
+// Where to go after signing in: the authorization page remembered in `fdl_suite`, else the home page.
+export function landing(request) {
+  try {
+    const url = decodeURIComponent(parseCookies(request).fdl_suite ?? '');
+    return /^\/oauth\/autoriser\?[\x21-\x7e]*$/.test(url) ? url : '/';
+  } catch {
+    return '/';
+  }
+}

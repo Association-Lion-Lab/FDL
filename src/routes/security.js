@@ -1,5 +1,6 @@
 import { checkPassword, hashPassword, verifyPassword } from '../accounts.js';
 import { createRecoveryCodes, startTotp, verifyTotp } from '../mfa.js';
+import { listLinks, revokeLink } from '../oauth.js';
 import { factorChangeNeedsElevation } from '../sessions.js';
 import { html, raw, readBody, redirect, sendPage } from '../web.js';
 import { elevationUrl } from './admin.js';
@@ -15,10 +16,11 @@ ${body}
 
   async function overview(request, response, { error = null, notice = null, status = 200 } = {}) {
     const id = request.session.accountId;
-    const [{ rows: [totp] }, { rows: passkeys }, { rows: [codes] }] = await Promise.all([
+    const [{ rows: [totp] }, { rows: passkeys }, { rows: [codes] }, links] = await Promise.all([
       pool.query('SELECT 1 FROM totp_secrets WHERE account_id = $1 AND confirmed_at IS NOT NULL', [id]),
       pool.query('SELECT id, name FROM passkeys WHERE account_id = $1 ORDER BY created_at', [id]),
       pool.query('SELECT count(*)::int AS n FROM recovery_codes WHERE account_id = $1 AND used_at IS NULL', [id]),
+      listLinks(pool, id),
     ]);
     const mandatory = new URL(request.url, 'http://x').searchParams.get('obligatoire') === '1';
     page(response, 'Sécurité du compte', html`
@@ -37,6 +39,9 @@ ${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}
 <ul id="passkey-codes"></ul>
 <script src="/static/simplewebauthn.js"></script>
 <script src="/static/fdl-passkeys.js"></script>
+<h2>Instances Manger! reliées</h2>
+${links.length ? html`<ul>${links.map((l) => html`<li>${l.clientId}, reliée le ${l.createdAt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
+<form method="post" action="/compte/securite/manger/retrait"><input type="hidden" name="client_id" value="${l.clientId}"><button type="submit">Retirer l'accès</button></form></li>`)}</ul>` : html`<p>Aucune instance reliée.</p>`}
 <h2>Codes de récupération</h2>
 <p>Codes restants : ${codes.n}.</p>
 <form method="post" action="/compte/securite/recuperation"><button type="submit">Nouveaux codes de récupération</button></form>
@@ -123,6 +128,12 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
       }
       redirect(response, '/compte/securite');
     }),
+
+    // No elevation: removing an access never widens one.
+    'POST /compte/securite/manger/retrait': async (request, response) => {
+      await revokeLink(pool, request.session.accountId, field(await readBody(request), 'client_id'));
+      overview(request, response, { notice: 'Accès retiré.' });
+    },
 
     'POST /compte/securite/recuperation': elevated(async (request, response) => {
       showCodes(response, await createRecoveryCodes(pool, request.session.accountId));

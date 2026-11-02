@@ -160,7 +160,7 @@ Sémantique des filtres :
 
 ## API Manger! (`/api/v1`)
 
-Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integration-manger` ; l'import et la vérification côté Manger! viennent ensuite). Session complète exigée pendant la bêta : sans elle, `401` de code `unauthorized` (jamais de redirection) ; un `moderator` ou `admin` sans clé d'accès reçoit `403` de code `forbidden`. Toutes les réponses portent `cache-control: no-store` (elles dépendent du compte).
+Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integration-manger` ; l'import et la vérification côté Manger! viennent ensuite). Accès : session complète ou `Authorization: Bearer <jeton>` (voir « Liaison Manger! (OAuth 2.0 + PKCE) »), exigé pendant la bêta. Sans l'un ni l'autre, `401` de code `unauthorized` (jamais de redirection) avec l'en-tête `www-authenticate: Bearer` ; au-delà de 300 requêtes par 15 minutes, par adresse et par instance, `429` de code `rate_limited` ; un `moderator` ou `admin` sans clé d'accès reçoit `403` de code `forbidden`. Toutes les réponses portent `cache-control: no-store` (elles dépendent du compte).
 
 | Route | Réponse |
 | --- | --- |
@@ -174,6 +174,35 @@ Lecture seule, en JSON, appelée par les serveurs Manger! (partie A de `integrat
 Projection d'une recette : `id`, `version`, `visibility` (`public` ou `private`), `title`, `minutes`, `servings`, `diet`, `tags`, `seasons`, `ingredients`, `steps`, `provenance`, `sourceUrl`, `licence`, `author` (nul pour un auteur anonyme), `publishedAt` (nul si privée) et `url` (page de la recette sur FDL). Ni photo, ni note, ni commentaire.
 
 Un état inconnu de Manger! vaut « garder la copie ». Décisions du porteur (2026-11-02) : la tranche `integration-manger` est découpée en 3 plans (A : cette API ; B : liaison de compte par OAuth 2.0 avec PKCE ; C : côté Manger!, import, vérification des versions, suppression) ; pendant la bêta l'API exige une identité (session en A, jeton en B) et l'import sans compte s'ouvrira avec le public ; quand l'auteur supprime lui-même sa recette (ou que la suppression de son compte supprime ses recettes privées), les copies restent (`not_found`).
+
+## Liaison Manger! (OAuth 2.0 + PKCE)
+
+Un serveur Manger! obtient un jeton qui lit `/api/v1` au nom d'un compte FDL (partie B de `integration-manger`).
+
+| Route | Rôle |
+| --- | --- |
+| `GET /oauth/autoriser` | Page de consentement (session complète exigée). Paramètres : `response_type=code`, `client_id`, `redirect_uri`, `state` (500 caractères au plus), `code_challenge`, `code_challenge_method=S256`. |
+| `POST /oauth/autoriser` | Décision de la personne (`decision=autoriser` ou `refuser`) ; redirige vers `redirect_uri` avec `code` (ou `error=access_denied`) et `state`. |
+| `POST /oauth/jeton` | Échange du code. Corps : `grant_type=authorization_code`, `code`, `client_id`, `redirect_uri`, `code_verifier`. Réponse `200 { "access_token": "...", "token_type": "Bearer" }`, `cache-control: no-store`. Sans contrôle d'Origin (appel serveur à serveur). |
+
+Décisions :
+
+- Pas d'enregistrement de client : `client_id` est l'origine de l'instance (`https://manger.exemple.fr`, `http://192.168.1.10:3000`), comme IndieAuth, sans chemin ni `/` final. `redirect_uri` doit avoir exactement cette origine. `http` est accepté (instances de foyer sur le réseau local) : PKCE protège le code et la page de consentement affiche l'adresse.
+- Client public, PKCE obligatoire, `S256` seulement, pas de secret client.
+- Un jeton d'accès sans expiration, sans jeton de rafraîchissement, révocable depuis `/compte/securite` (« Instances Manger! reliées »). Une seule liaison par compte et par instance : relier à nouveau remplace l'ancien jeton. Le bannissement ou la suppression du compte coupe le jeton.
+- Portée unique : lecture de `/api/v1`, sans paramètre `scope`. Le jeton n'ouvre jamais le site (pages HTML, formulaires).
+- Code d'autorisation : 32 octets aléatoires, stocké haché, valable 5 minutes, à usage unique (consommé même si l'échange échoue).
+- Le schéma `Bearer` de l'en-tête `Authorization` est insensible à la casse.
+- Limites : compteur en mémoire de 300 requêtes par 15 minutes, une clé par adresse sur `/api/` et `/oauth/jeton`, une clé par instance pour les requêtes portant un jeton. Dépassement : `429` `rate_limited`.
+- Retour après connexion : une personne non connectée qui ouvre `/oauth/autoriser` revient sur la page de consentement après sa connexion (cookie `fdl_suite`, 10 minutes ; absent ou invalide, retour à l'accueil).
+
+Erreurs :
+
+- `client_id` ou `redirect_uri` invalide : page d'erreur FDL, jamais de redirection.
+- Autres erreurs de la demande, par redirection vers `redirect_uri` : `?error=invalid_request` ou `unsupported_response_type` (ou `access_denied` si la personne refuse), plus `state` s'il était fourni.
+- `/oauth/jeton` : `400 { "error": "invalid_request" | "invalid_grant" | "unsupported_grant_type", "error_description": "..." }`, la description étant en français. `invalid_grant` couvre un code inconnu, déjà utilisé, expiré, émis pour une autre instance ou un autre `redirect_uri`, ou un mauvais `code_verifier` ; le code ne sert plus ensuite. Trop de requêtes : `429`.
+
+Hors périmètre : métadonnées de découverte (RFC 8414, les chemins sont fixes), révocation à distance par Manger! (RFC 7009), date de dernière utilisation d'un jeton, révocation des jetons au changement de mot de passe.
 
 ## Catalogue
 

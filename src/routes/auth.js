@@ -1,7 +1,7 @@
 import { checkPassword, hashPassword, hashToken, redeemInvitation, redeemReset, verifyPassword } from '../accounts.js';
 import { hasSecondFactor, useRecoveryCode, verifyTotp } from '../mfa.js';
 import { clearSessionCookie, closeSession, openSession, sessionCookie } from '../sessions.js';
-import { html, readBody, redirect, sendPage } from '../web.js';
+import { html, landing, readBody, redirect, sendPage } from '../web.js';
 
 const LINK_GONE = "Ce lien n'est plus valable. Demandez-en un nouveau.";
 const TOO_MANY = 'Trop de tentatives. Réessayez dans 15 minutes.';
@@ -196,7 +196,7 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
       const cookie = await startSession(pool, request, securityLog, {
         accountId: account.id, role: account.role, mfaOk, old: request.session,
       });
-      redirect(response, mfaOk ? '/' : '/connexion/verification', cookie);
+      redirect(response, mfaOk ? landing(request) : '/connexion/verification', cookie);
     },
 
     'GET /connexion/verification': async (request, response) => {
@@ -220,7 +220,7 @@ export function authRoutes(pool, config, { limiter, securityLog = () => {} }) {
         return verificationPage(response, await hasPasskey(session.accountId), 'Code incorrect.', 400);
       }
       limiter.reset(key);
-      redirect(response, '/', await promoteSession(pool, session, request, securityLog));
+      redirect(response, landing(request), await promoteSession(pool, session, request, securityLog));
     },
 
     'POST /deconnexion': async (request, response) => {
