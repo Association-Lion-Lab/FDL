@@ -1,4 +1,58 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+export const PHOTO_FILE = /^[0-9a-f]{64}$/;
 const MAX_SIDE = 8000;
+
+export const photoPath = (dataDir, file) => join(dataDir, 'photos', `${file}.jpg`);
+
+// Stores an already stripped JPEG under its sha256; tmp + rename so a reader never sees a partial file.
+export async function savePhoto(dataDir, jpegBuffer) {
+  const hash = createHash('sha256').update(jpegBuffer).digest('hex');
+  await mkdir(join(dataDir, 'photos'), { recursive: true });
+  await mkdir(join(dataDir, 'tmp'), { recursive: true });
+  const tmp = join(dataDir, 'tmp', randomUUID());
+  await writeFile(tmp, jpegBuffer);
+  await rename(tmp, photoPath(dataDir, hash));
+  return hash;
+}
+
+// Deletes photo files no live recipe cites (version or draft) once older than graceMs, which covers an upload
+// whose file is written before its draft. Returns the number deleted.
+export async function sweepPhotos(db, dataDir, { graceMs = 600000, now = Date.now() } = {}) {
+  let names;
+  try {
+    names = await readdir(join(dataDir, 'photos'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return 0;
+    throw error;
+  }
+  const files = names.filter((n) => n.endsWith('.jpg') && PHOTO_FILE.test(n.slice(0, -4))).map((n) => n.slice(0, -4));
+  if (!files.length) return 0;
+  const { rows } = await db.query(
+    `SELECT v.photo AS file FROM recipe_versions v JOIN recipes r ON r.id = v.recipe_id
+      WHERE r.removed_at IS NULL AND v.photo = ANY($1)
+     UNION
+     SELECT r.draft->'photo'->>'file' FROM recipes r
+      WHERE r.removed_at IS NULL AND r.draft->'photo'->>'file' = ANY($1)`,
+    [files]
+  );
+  const cited = new Set(rows.map((row) => row.file));
+  let deleted = 0;
+  for (const file of files) {
+    if (cited.has(file)) continue;
+    const path = photoPath(dataDir, file);
+    try {
+      if (now - (await stat(path)).mtimeMs <= graceMs) continue;
+      await unlink(path);
+      deleted += 1;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  return deleted;
+}
 // SOF0-2, DHT, DQT, DRI, SOS.
 const KEEP = new Set([0xc0, 0xc1, 0xc2, 0xc4, 0xdb, 0xdd, 0xda]);
 

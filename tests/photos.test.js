@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { stripJpeg } from '../src/photos.js';
+import { migrate } from '../src/db.js';
+import { publishVersion } from '../src/recipes.js';
+import { savePhoto, stripJpeg, sweepPhotos } from '../src/photos.js';
+import { createTestDatabase } from './helpers/db.js';
 import { jpeg } from './helpers/photos.js';
+import { recipe } from './helpers/recipes.js';
 
 describe('stripJpeg', () => {
   it('retire APPn et COM, garde le reste', () => {
@@ -71,5 +79,66 @@ describe('stripJpeg', () => {
     const b = Buffer.from(jpeg());
     b.writeUInt16BE(0xffff, 4); // longueur de APP0
     assert.equal(stripJpeg(b), null);
+  });
+});
+
+describe('savePhoto et sweepPhotos', () => {
+  let testDb;
+  let pool;
+  let dir;
+  const hex = (c) => c.repeat(64);
+
+  beforeEach(async () => {
+    testDb = await createTestDatabase();
+    pool = testDb.pool;
+    await migrate(pool);
+    dir = await mkdtemp(join(tmpdir(), 'fdl-photos-'));
+  });
+  afterEach(async () => {
+    await testDb.drop();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const put = async (name) => {
+    await mkdir(join(dir, 'photos'), { recursive: true });
+    await writeFile(join(dir, 'photos', `${name}.jpg`), 'x');
+  };
+  const files = () => readdir(join(dir, 'photos')).then((l) => l.sort());
+  // a is cited by a visible version, b only by a draft, c by nobody.
+  async function setup() {
+    const { id } = await publishVersion(pool, { fields: recipe({ photo: { file: hex('a'), credit: 'Léa' } }) });
+    await pool.query("INSERT INTO recipes (draft) VALUES ($1)", [JSON.stringify({ photo: { file: hex('b'), credit: 'Zoé' } })]);
+    for (const c of ['a', 'b', 'c']) await put(hex(c));
+    return id;
+  }
+
+  it('savePhoto stocke sous le sha256 et vide tmp', async () => {
+    const buf = stripJpeg(jpeg());
+    const hash = await savePhoto(dir, buf);
+    assert.equal(hash, createHash('sha256').update(buf).digest('hex'));
+    assert.deepEqual(await readFile(join(dir, 'photos', `${hash}.jpg`)), buf);
+    assert.deepEqual(await readdir(join(dir, 'tmp')), []);
+  });
+  it('efface seulement le fichier non cité, après le délai', async () => {
+    await setup();
+    assert.equal(await sweepPhotos(pool, dir, { now: Date.now() }), 0);
+    assert.equal((await files()).length, 3);
+    assert.equal(await sweepPhotos(pool, dir, { now: Date.now() + 3600000 }), 1);
+    assert.deepEqual(await files(), [`${hex('a')}.jpg`, `${hex('b')}.jpg`]);
+  });
+  it('une recette retirée ne cite plus rien', async () => {
+    const id = await setup();
+    await pool.query('UPDATE recipes SET removed_at = now() WHERE id = $1', [id]);
+    assert.equal(await sweepPhotos(pool, dir, { now: Date.now() + 3600000 }), 2);
+    assert.deepEqual(await files(), [`${hex('b')}.jpg`]);
+  });
+  it('ignore les autres noms et un dossier absent', async () => {
+    assert.equal(await sweepPhotos(pool, dir), 0);
+    await put(hex('c'));
+    await writeFile(join(dir, 'photos', 'notes.txt'), 'x');
+    const old = new Date(Date.now() - 3600000);
+    await utimes(join(dir, 'photos', 'notes.txt'), old, old);
+    assert.equal(await sweepPhotos(pool, dir, { now: Date.now() + 3600000 }), 1);
+    assert.deepEqual(await files(), ['notes.txt']);
   });
 });

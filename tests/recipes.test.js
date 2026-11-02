@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { migrate } from '../src/db.js';
-import { currentSeason, getRecipe, publishVersion, searchRecipes, topRated } from '../src/recipes.js';
+import { checkFields, currentSeason, getRecipe, publishVersion, searchRecipes, topRated } from '../src/recipes.js';
 import { createTestDatabase } from './helpers/db.js';
 import { recipe } from './helpers/recipes.js';
 
@@ -104,6 +104,28 @@ describe('publishVersion and getRecipe', () => {
     await pool.query('DELETE FROM accounts WHERE id = $1', [authorId]);
     assert.equal((await getRecipe(pool, id)).author, null);
     assert.equal((await searchRecipes(pool)).items[0].author, null);
+  });
+});
+
+describe('photo field', () => {
+  const photo = { file: 'a'.repeat(64), credit: 'Léa' };
+  it('normalizes a photo, defaulting to null', () => {
+    assert.deepEqual(checkFields({ ...recipe(), photo }).photo, photo);
+    assert.equal(checkFields(recipe()).photo, null);
+  });
+  it('refuses a bad file name or credit', () => {
+    for (const bad of [
+      { file: '../x', credit: 'a' }, { file: 'A'.repeat(64), credit: 'a' },
+      { file: 'a'.repeat(64), credit: '' }, { file: 'a'.repeat(64), credit: 'x'.repeat(81) },
+    ]) {
+      assert.throws(() => checkFields({ ...recipe(), photo: bad }), { code: 'invalid_recipe' });
+    }
+  });
+  it('stores the photo with the version', async () => {
+    const { id } = await publish({ photo });
+    assert.deepEqual((await getRecipe(pool, id)).photo, photo);
+    const { id: other } = await publish({});
+    assert.equal((await getRecipe(pool, other)).photo, null);
   });
 });
 

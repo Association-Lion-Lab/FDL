@@ -124,6 +124,13 @@ describe('submitVersion', () => {
     await rejects(submitVersion(pool, { recipeId: id, authorId, mode: 'private', dataDir }), 'already_public');
   });
 
+  it('keeps the photo of a private version', async () => {
+    const authorId = await author();
+    const photo = { file: 'b'.repeat(64), credit: 'Léa' };
+    const { id } = await submit(authorId, { photo }, 'private');
+    assert.deepEqual((await getOwnRecipe(pool, { recipeId: id, authorId })).latest.photo, photo);
+  });
+
   it('keeps a private version private and lists the states', async () => {
     const authorId = await author();
     const priv = await submit(authorId, {}, 'private');

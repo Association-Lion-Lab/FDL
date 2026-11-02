@@ -127,7 +127,7 @@ const STATE = `CASE
 
 // Newest first; l is the latest version, d the latest decision.
 const OWN = `SELECT r.id, r.draft, ${STATE} AS state, l.version, l.status, l.flags, l.title AS version_title, l.minutes, l.servings, l.diet,
-    l.tags, l.seasons, l.universe, l.ingredients, l.steps, l.provenance, l.source_url, d.decision, d.reason, d.at
+    l.tags, l.seasons, l.universe, l.ingredients, l.steps, l.provenance, l.source_url, l.photo, l.photo_credit, d.decision, d.reason, d.at
   FROM recipes r
   LEFT JOIN LATERAL (SELECT * FROM recipe_versions WHERE recipe_id = r.id ORDER BY version DESC LIMIT 1) l ON true
   LEFT JOIN LATERAL (SELECT * FROM moderation_decisions WHERE recipe_id = r.id ORDER BY at DESC, id DESC LIMIT 1) d ON true
@@ -155,6 +155,7 @@ export async function getOwnRecipe(db, { recipeId, authorId }) {
       version: row.version, status: row.status, flags: row.flags, title: row.version_title, minutes: row.minutes,
       servings: row.servings, diet: row.diet, tags: row.tags, seasons: row.seasons, universe: row.universe,
       ingredients: row.ingredients, steps: row.steps, provenance: row.provenance, sourceUrl: row.source_url,
+      photo: row.photo ? { file: row.photo, credit: row.photo_credit } : null,
     },
   };
 }

@@ -36,7 +36,8 @@ export async function getVersion(db, id, version) {
     version: row.version, status: row.status, flags: row.flags, removed: row.removed_at !== null,
     title: row.title, minutes: row.minutes, servings: row.servings, diet: row.diet, tags: row.tags, seasons: row.seasons,
     universe: row.universe ? { label: row.universe_label } : null, ingredients: row.ingredients, steps: row.steps,
-    provenance: row.provenance, sourceUrl: row.source_url, author: row.author, publishedAt: row.published_at,
+    provenance: row.provenance, sourceUrl: row.source_url,
+    photo: row.photo ? { file: row.photo, credit: row.photo_credit } : null, author: row.author, publishedAt: row.published_at,
   };
 }
 

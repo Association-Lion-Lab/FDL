@@ -1,3 +1,5 @@
+import { PHOTO_FILE } from './photos.js';
+
 export const DIETS = ['vegan', 'vegetarian', 'pescetarian', 'omnivore'];
 export const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
 const PREPARATIONS = ['raw', 'cooked', 'unknown'];
@@ -24,7 +26,7 @@ function safeUrl(value) {
 
 // Limits of docs/CONTRATS.md "Projection compatible avec Manger!". Returns the normalized fields.
 export function checkFields(fields) {
-  const { title, minutes, servings, diet, tags = [], seasons = [], universe = null, ingredients, steps, provenance, sourceUrl = null } = fields;
+  const { title, minutes, servings, diet, tags = [], seasons = [], universe = null, ingredients, steps, provenance, sourceUrl = null, photo = null } = fields;
   if (!text(title, 120)) throw invalid('Le titre doit faire de 1 à 120 caractères.');
   if (!int(minutes, 1, 1440)) throw invalid('La durée doit être un nombre entier de minutes, de 1 à 1 440.');
   if (!int(servings, 1, 100)) throw invalid('Le nombre de portions doit être un entier de 1 à 100.');
@@ -51,7 +53,14 @@ export function checkFields(fields) {
   });
   if (!text(provenance, 200)) throw invalid('La provenance doit faire de 1 à 200 caractères.');
   if (sourceUrl !== null && !safeUrl(sourceUrl)) throw invalid('Lien source invalide.');
-  return { title, minutes, servings, diet, tags, seasons, universe, ingredients: cleanIngredients, steps: cleanSteps, provenance, sourceUrl };
+  let cleanPhoto = null;
+  if (photo !== null) {
+    if (typeof photo?.file !== 'string' || !PHOTO_FILE.test(photo.file) || !text(photo.credit, 80)) {
+      throw invalid('Indiquez l\'auteur de la photo, en 80 caractères au plus.');
+    }
+    cleanPhoto = { file: photo.file, credit: photo.credit };
+  }
+  return { title, minutes, servings, diet, tags, seasons, universe, ingredients: cleanIngredients, steps: cleanSteps, provenance, sourceUrl, photo: cleanPhoto };
 }
 
 // Inserts a validated version with its search vector. Only a published one gets published_at.
@@ -59,12 +68,13 @@ export async function insertVersion(client, id, version, f, status, flags = []) 
   const words = [...f.ingredients.map((i) => i.name), ...f.tags].join(' ');
   await client.query(
     `INSERT INTO recipe_versions (recipe_id, version, title, minutes, servings, diet, tags, seasons, universe,
-       ingredients, steps, provenance, source_url, search, submitted_at, published_at, status, flags)
+       ingredients, steps, provenance, source_url, search, submitted_at, published_at, status, flags, photo, photo_credit)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
        setweight(to_tsvector('fdl_fr', $3), 'A') || setweight(to_tsvector('fdl_fr', $14), 'B'), now(),
-       CASE WHEN $15 = 'published' THEN now() END, $15, $16)`,
+       CASE WHEN $15 = 'published' THEN now() END, $15, $16, $17, $18)`,
     [id, version, f.title, f.minutes, f.servings, f.diet, f.tags, f.seasons, f.universe,
-      JSON.stringify(f.ingredients), JSON.stringify(f.steps), f.provenance, f.sourceUrl, words, status, flags]
+      JSON.stringify(f.ingredients), JSON.stringify(f.steps), f.provenance, f.sourceUrl, words, status, flags,
+      f.photo?.file ?? null, f.photo?.credit ?? null]
   );
 }
 
@@ -140,6 +150,7 @@ export async function getRecipe(db, id) {
     steps: row.steps,
     provenance: row.provenance,
     sourceUrl: row.source_url,
+    photo: row.photo ? { file: row.photo, credit: row.photo_credit } : null,
     licence: row.text_licence,
     author: row.author,
     submittedAt: row.submitted_at,
