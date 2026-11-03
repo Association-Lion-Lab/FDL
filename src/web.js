@@ -44,6 +44,12 @@ export function sendPage(response, status, title, body) {
 <main>
 ${body}
 </main>
+<footer>
+<a href="/mentions-legales">Mentions légales</a>
+<a href="/confidentialite">Confidentialité</a>
+<a href="/conditions">Conditions d'utilisation</a>
+<a href="/faq">Questions fréquentes</a>
+</footer>
 </body>
 </html>
 `));

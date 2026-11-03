@@ -16,6 +16,7 @@ import { catalogueRoutes } from './routes/catalogue.js';
 import { commentRoutes } from './routes/comments.js';
 import { contributionRoutes } from './routes/contributions.js';
 import { moderationRoutes } from './routes/moderation.js';
+import { LEGAL_PATHS, pageRoutes } from './routes/pages.js';
 import { createSecurityLog } from './securitylog.js';
 import { securityRoutes } from './routes/security.js';
 import { loadSession } from './sessions.js';
@@ -38,6 +39,7 @@ export const PUBLIC_PATHS = new Set([
   '/cles/connexion/options',
   '/cles/connexion/verification',
   '/oauth/jeton',
+  ...LEGAL_PATHS,
 ]);
 
 // Sign-out and static assets are already public; these are the rest of what a keyless staff session may open.
@@ -120,6 +122,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
     ...moderationRoutes(pool, config),
     ...apiRoutes(pool, config),
     ...oauthRoutes(pool, config),
+    ...pageRoutes(),
     'GET /static/fdl.css': (request, response) => {
       response.writeHead(200, { 'content-type': 'text/css; charset=utf-8' });
       response.end(css);
