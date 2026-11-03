@@ -1,6 +1,7 @@
 :root { color-scheme: light dark; }
 body { margin: 0; font: 1rem/1.5 system-ui, sans-serif; }
-main { max-width: 40rem; margin: 0 auto; padding: 1rem; }
+main, footer { max-width: 40rem; margin: 0 auto; padding: 1rem; }
+footer { display: flex; flex-wrap: wrap; gap: 0 1rem; font-size: 0.875rem; }
 label { display: block; margin-top: 1rem; }
 input, button { font: inherit; padding: 0.5rem; max-width: 100%; box-sizing: border-box; }
 input { width: 100%; }
@@ -15,4 +16,4 @@ header label, header button { margin-top: 0; }
 figure img, img.preview { max-width: 100%; height: auto; }
 img.preview { max-height: 12rem; }
 .comment p { white-space: pre-line; }
-@media print { header, button { display: none; } }
+@media print { header, footer, button { display: none; } }
