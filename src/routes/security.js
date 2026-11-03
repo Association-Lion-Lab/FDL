@@ -23,8 +23,10 @@ ${body}
       listLinks(pool, id),
     ]);
     const mandatory = new URL(request.url, 'http://x').searchParams.get('obligatoire') === '1';
+    const staff = request.session.role === 'moderator' || request.session.role === 'admin';
     page(response, 'Sécurité du compte', html`
 ${mandatory && !passkeys.length ? html`<p role="status">Votre rôle exige une clé d'accès : ajoutez-en une pour accéder au reste du site.</p>` : ''}
+${!staff && html`<p>Tout est facultatif ici : ajoutez une protection si vous le souhaitez, ou <a href="/">retournez à l'accueil</a>.</p>`}
 ${notice ? html`<p role="status">${notice}</p>` : ''}
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <h2>Code à 6 chiffres</h2>
