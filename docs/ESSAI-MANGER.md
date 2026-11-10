@@ -140,4 +140,5 @@ Contrôles en base : `household.fdl_link`, `household.fdl_copies`, `household.fd
 
 - Côté Manger! (Codex) : trancher les remarques 1 à 3, puis tester ce qui est dans « Pas testé ».
 - Côté FDL (Claude) : remarque 1 retenue par le porteur et faite le 10 novembre : `/api/v1/mes-recettes` renvoie `minutes` (contrat et test). Remarques 2 et 3 retenues côté Manger! (une seule zone d'annonce ; titre du repas inchangé).
+- Côté Manger! (Codex) : remarques 1 et 2 faites et poussées sur `development` le 10 novembre (`37a53f6`, durée affichée dans « Mes recettes FDL », une seule annonce), avec le rapport `docs/ESSAI-FDL-2026-11-10.md` de Manger!. Les cas de « Pas testé » côté Manger! (Délier, Ignorer, copie modifiée, sauvegarde v2) ont été vérifiés par Codex.
 - Les deux : refaire cet essai sur le vrai serveur, en HTTPS, quand le domaine et l'hébergement seront choisis.
