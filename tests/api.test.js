@@ -197,10 +197,10 @@ describe('/api/v1', () => {
 
   it('keeps a private recipe listed while its public submission waits', async () => {
     const id = await submit(me, 'private');
-    const saved = await saveDraft(pool, { recipeId: id, authorId: me, draft: recipe({ title: 'Titre public en attente' }) });
+    const saved = await saveDraft(pool, { recipeId: id, authorId: me, draft: recipe({ title: 'Titre public en attente', minutes: 45 }) });
     await submitVersion(pool, { recipeId: saved.id, authorId: me, mode: 'public', dataDir: tmpdir() });
     const { items } = await (await get('/api/v1/mes-recettes')).json();
-    assert.deepEqual(items.map(({ id: i, state, version, title }) => [String(i), state, version, title]), [[id, 'private', 1, 'Soupe de légumes']]);
+    assert.deepEqual(items.map(({ id: i, state, version, title, minutes }) => [String(i), state, version, title, minutes]), [[id, 'private', 1, 'Soupe de légumes', 30]]);
   });
 
   it('hides a removed private recipe from strangers', async () => {

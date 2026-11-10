@@ -139,5 +139,5 @@ Contrôles en base : `household.fdl_link`, `household.fdl_copies`, `household.fd
 ## Suite
 
 - Côté Manger! (Codex) : trancher les remarques 1 à 3, puis tester ce qui est dans « Pas testé ».
-- Côté FDL (Claude) : rien à corriger. Si la remarque 1 est retenue, ajouter `minutes` à `/api/v1/mes-recettes` (contrat et test).
+- Côté FDL (Claude) : remarque 1 retenue par le porteur et faite le 10 novembre : `/api/v1/mes-recettes` renvoie `minutes` (contrat et test). Remarques 2 et 3 retenues côté Manger! (une seule zone d'annonce ; titre du repas inchangé).
 - Les deux : refaire cet essai sur le vrai serveur, en HTTPS, quand le domaine et l'hébergement seront choisis.

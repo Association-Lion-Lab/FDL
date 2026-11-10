@@ -45,14 +45,17 @@ export function apiRoutes(pool, config) {
       const { accountId } = request.session;
       const mine = await listMine(pool, accountId);
       const states = await recipeStates(pool, mine.map(({ id }) => String(id)), accountId);
-      // listMine's state and title are the latest version's: take both from the version we report.
+      // listMine's state and title are the latest version's: take title and minutes from the version we report.
       const found = mine.filter(({ id }) => states.get(id).version != null);
       const { rows } = await pool.query(
-        'SELECT v.recipe_id, v.title FROM unnest($1::bigint[], $2::int[]) AS t(id, version) JOIN recipe_versions v ON v.recipe_id = t.id AND v.version = t.version',
+        'SELECT v.recipe_id, v.title, v.minutes FROM unnest($1::bigint[], $2::int[]) AS t(id, version) JOIN recipe_versions v ON v.recipe_id = t.id AND v.version = t.version',
         [found.map(({ id }) => id), found.map(({ id }) => states.get(id).version)]
       );
-      const titles = new Map(rows.map((row) => [Number(row.recipe_id), row.title]));
-      const items = found.map(({ id }) => ({ id, title: titles.get(id), state: states.get(id).state, version: states.get(id).version }));
+      const versions = new Map(rows.map((row) => [Number(row.recipe_id), row]));
+      const items = found.map(({ id }) => {
+        const { title, minutes } = versions.get(id);
+        return { id, title, minutes, state: states.get(id).state, version: states.get(id).version };
+      });
       sendJson(response, 200, { items });
     },
   };
