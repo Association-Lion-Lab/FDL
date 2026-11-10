@@ -55,5 +55,6 @@ Le mot de passe et la clé ne sont jamais affichés ni journalisés. Perdre `FDL
 - [Architecture](docs/ARCHITECTURE.md)
 - [Contrats initiaux](docs/CONTRATS.md)
 - [Exploitation](docs/EXPLOITATION.md)
+- [Essai FDL + Manger! en local](docs/ESSAI-MANGER.md)
 
 La licence du code et celle des contributions restent deux décisions distinctes à prendre avant toute publication réelle.
