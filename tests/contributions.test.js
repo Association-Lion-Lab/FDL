@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { migrate } from '../src/db.js';
-import { getOwnRecipe, isTrusted, listMine, saveDraft, submitVersion } from '../src/contributions.js';
+import { recipeStates } from '../src/api.js';
+import { deleteRecipe, getOwnRecipe, isTrusted, listMine, saveDraft, submitVersion } from '../src/contributions.js';
 import { getRecipe, publishVersion, searchRecipes } from '../src/recipes.js';
 import { createTestDatabase } from './helpers/db.js';
 import { recipe } from './helpers/recipes.js';
@@ -167,5 +168,27 @@ describe('fix round 1', () => {
     const { rows } = await pool.query('SELECT version, status FROM recipe_versions WHERE recipe_id = $1 ORDER BY version', [id]);
     assert.deepEqual(rows.map((r) => r.status), ['rejected', 'private']);
     assert.equal((await pool.query('SELECT 1 FROM moderation_decisions WHERE recipe_id = $1', [id])).rowCount, 1);
+  });
+});
+
+describe('deleteRecipe', () => {
+  it('deletes the author\'s published recipe: gone from the catalogue, not_found for Manger!', async () => {
+    const authorId = await trusted();
+    const { id, status } = await submit(authorId, { title: 'À effacer' });
+    assert.equal(status, 'published');
+    await deleteRecipe(pool, { recipeId: id, authorId });
+    assert.equal(await getRecipe(pool, id), null);
+    assert.deepEqual((await recipeStates(pool, [String(id)], authorId)).get(id), { state: 'not_found' });
+  });
+
+  it('refuses another account, an unknown id and a recipe removed by moderation', async () => {
+    const authorId = await author();
+    const { id } = await submit(authorId, {}, 'private');
+    await assert.rejects(deleteRecipe(pool, { recipeId: id, authorId: await author() }), { code: 'not_found' });
+    await assert.rejects(deleteRecipe(pool, { recipeId: 999999, authorId }), { code: 'not_found' });
+    await pool.query("UPDATE recipes SET removed_at = now(), removed_reason = 'x' WHERE id = $1", [id]);
+    // The moderation trace and the 'removed' state Manger! relies on must stay.
+    await assert.rejects(deleteRecipe(pool, { recipeId: id, authorId }), { code: 'not_found' });
+    assert.equal((await pool.query('SELECT 1 FROM recipes WHERE id = $1', [id])).rowCount, 1);
   });
 });

@@ -1,5 +1,5 @@
 import { visibleComment } from '../comments.js';
-import { getOwnRecipe, listMine, saveDraft, submitVersion } from '../contributions.js';
+import { deleteRecipe, getOwnRecipe, listMine, saveDraft, submitVersion } from '../contributions.js';
 import { DIETS, SEASONS, VISIBLE, listUniverses } from '../recipes.js';
 import { savePhoto, stripJpeg, sweepPhotos } from '../photos.js';
 import { html, readBody, readForm, redirect } from '../web.js';
@@ -181,8 +181,38 @@ export function contributionRoutes(pool, config, { limiter }) {
 <p><a href="/mes-recettes/edition">Écrire une recette</a></p>
 ${items.length ? html`<ul>${items.map((r) => html`<li>${r.state === 'removed' ? r.title : html`<a href="/mes-recettes/edition?id=${r.id}">${r.title}</a>`}
 <span>${STATE_LABELS[r.state]}</span>
+${r.state === 'removed' ? '' : html`<a href="/mes-recettes/supprimer?id=${r.id}">Supprimer</a>`}
 ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
 `)}</ul>` : html`<p>Vous n'avez pas encore de recette.</p>`}`);
+    },
+
+    'GET /mes-recettes/supprimer': async (request, response) => {
+      const id = parseId(new URL(request.url, 'http://x').searchParams.get('id') ?? '');
+      const own = id && await getOwnRecipe(pool, { recipeId: id, authorId: request.session.accountId });
+      if (!own || own.state === 'removed') return notFound(response);
+      const title = own.latest?.title || own.draft?.title || 'Sans titre';
+      show(response, 200, 'Supprimer une recette', html`<h1>Supprimer « ${title} » ?</h1>
+<p>La recette, ses versions, ses notes et ses commentaires seront effacés de Faim de Lion. Cette action est définitive.</p>
+<p>Les foyers qui l'ont déjà importée dans Manger! gardent leur copie.</p>
+<form method="post" action="/mes-recettes/supprimer">
+<input type="hidden" name="id" value="${id}">
+<button type="submit">Supprimer définitivement</button>
+</form>
+<p><a href="/mes-recettes">Annuler</a></p>`);
+    },
+
+    'POST /mes-recettes/supprimer': async (request, response) => {
+      const id = parseId(field(await readBody(request), 'id'));
+      try {
+        if (!id) return notFound(response);
+        await deleteRecipe(pool, { recipeId: id, authorId: request.session.accountId });
+      } catch (error) {
+        if (error.code === 'not_found') return notFound(response);
+        throw error;
+      }
+      // The recipe is gone; a failed sweep must not turn that into a 500.
+      await sweepPhotos(pool, config.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
+      redirect(response, '/mes-recettes');
     },
 
     'GET /mes-recettes/edition': async (request, response) => {

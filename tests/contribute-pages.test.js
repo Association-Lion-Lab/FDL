@@ -338,3 +338,38 @@ describe('recipe photo', () => {
     assert.equal((await upload([['photo_credit', 'a']])).status, 429);
   });
 });
+
+describe('recipe deletion', () => {
+  const remove = async (id, who = me) => {
+    const response = await fetch(`${base}/mes-recettes/supprimer`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { cookie: who.cookie, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ id: String(id) }),
+    });
+    return { status: response.status, response };
+  };
+  const mine = async () => (await pool.query('SELECT id FROM recipes WHERE author_id = $1', [me.id])).rows.map((r) => Number(r.id));
+
+  it('lists a delete link, asks for confirmation, then deletes', async () => {
+    assert.equal((await post(full('privee'))).status, 303);
+    const [id] = await mine();
+    assert.ok((await get('/mes-recettes')).text.includes(`/mes-recettes/supprimer?id=${id}`));
+    const page = await get(`/mes-recettes/supprimer?id=${id}`);
+    assert.equal(page.status, 200);
+    assert.ok(page.text.includes('Soupe'));
+    assert.ok(page.text.includes('action="/mes-recettes/supprimer"'));
+    const sent = await remove(id);
+    assert.equal(sent.status, 303);
+    assert.equal(sent.response.headers.get('location'), '/mes-recettes');
+    assert.deepEqual(await mine(), []);
+  });
+
+  it('answers 404 for another account\'s recipe and keeps it', async () => {
+    assert.equal((await post(full('privee'))).status, 303);
+    const [id] = await mine();
+    assert.equal((await get(`/mes-recettes/supprimer?id=${id}`, other)).status, 404);
+    assert.equal((await remove(id, other)).status, 404);
+    assert.deepEqual(await mine(), [id]);
+  });
+});

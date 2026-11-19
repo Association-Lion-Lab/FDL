@@ -38,7 +38,7 @@ Aucune n'est bloquante. À trancher par le porteur avant de coder.
 - Copie modifiée localement puis mise à jour (avertissement de perte des changements).
 - Sauvegarde et restauration du foyer (format v2 avec suivi des copies).
 - HTTPS, Docker, serveur Ubuntu, Safari et iPhone, plusieurs foyers.
-- Une recette supprimée par son **auteur** : FDL n'a pas encore cette fonction (les copies doivent rester, état `not_found`).
+- Une recette supprimée par son **auteur** (`/mes-recettes/supprimer`, depuis le 2026-11-19) : les copies doivent rester, état `not_found`.
 
 ## Rejouer l'essai
 

@@ -124,6 +124,13 @@ export async function submitVersion(db, { recipeId, authorId, mode, dataDir }) {
   }
 }
 
+// Real deletion (versions, notes, comments, reports cascade): Manger! then sees not_found and keeps its copies.
+// A recipe removed by moderation stays, so its trace and the 'removed' state Manger! acts on survive.
+export async function deleteRecipe(db, { recipeId, authorId }) {
+  const { rowCount } = await db.query('DELETE FROM recipes WHERE id = $1 AND author_id = $2 AND removed_at IS NULL', [recipeId, authorId]);
+  if (!rowCount) throw notFound();
+}
+
 const STATE = `CASE
   WHEN r.removed_at IS NOT NULL THEN 'removed'
   WHEN r.published_version IS NOT NULL THEN
