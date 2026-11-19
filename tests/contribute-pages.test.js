@@ -354,7 +354,8 @@ describe('recipe deletion', () => {
   it('lists a delete link, asks for confirmation, then deletes', async () => {
     assert.equal((await post(full('privee'))).status, 303);
     const [id] = await mine();
-    assert.ok((await get('/mes-recettes')).text.includes(`/mes-recettes/supprimer?id=${id}`));
+    // The title in the link's name tells screen readers which recipe each "Supprimer" targets.
+    assert.ok((await get('/mes-recettes')).text.includes(`/mes-recettes/supprimer?id=${id}" aria-label="Supprimer « Soupe »"`));
     const page = await get(`/mes-recettes/supprimer?id=${id}`);
     assert.equal(page.status, 200);
     assert.ok(page.text.includes('Soupe'));

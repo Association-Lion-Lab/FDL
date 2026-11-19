@@ -181,7 +181,7 @@ export function contributionRoutes(pool, config, { limiter }) {
 <p><a href="/mes-recettes/edition">Écrire une recette</a></p>
 ${items.length ? html`<ul>${items.map((r) => html`<li>${r.state === 'removed' ? r.title : html`<a href="/mes-recettes/edition?id=${r.id}">${r.title}</a>`}
 <span>${STATE_LABELS[r.state]}</span>
-${r.state === 'removed' ? '' : html`<a href="/mes-recettes/supprimer?id=${r.id}">Supprimer</a>`}
+${r.state === 'removed' ? '' : html`<a href="/mes-recettes/supprimer?id=${r.id}" aria-label="Supprimer « ${r.title} »">Supprimer</a>`}
 ${r.lastDecision ? html`<p>Motif : ${r.lastDecision.reason}</p>` : ''}</li>
 `)}</ul>` : html`<p>Vous n'avez pas encore de recette.</p>`}`);
     },
