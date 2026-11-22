@@ -7,7 +7,7 @@ import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
 import { listLinks } from '../oauth.js';
 import { canSeePhoto, photoPath } from '../photos.js';
-import { html, sendPage } from '../web.js';
+import { html, raw, sendPage } from '../web.js';
 
 const printScript = readFileSync(new URL('../static/fdl-print.js', import.meta.url));
 const photoScript = readFileSync(new URL('../static/fdl-photo.js', import.meta.url));
@@ -21,18 +21,24 @@ const FILTER_DIETS = ['vegan', 'vegetarian', 'pescetarian'];
 const MAX_ID = 9223372036854775807n;
 const author = (name) => name ?? 'Auteur anonyme';
 
-const header = (q = '', role) => html`<header>
-<a href="/">Faim de Lion</a>
-<form method="get" action="/recherche" role="search">
-<label>Rechercher une recette <input name="q" type="search" value="${q}"></label>
-<button type="submit">Rechercher</button>
-</form>
+const LOGO = raw('<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="18" fill="#F2B230"/><path d="M11 21c2 4 12 4 14 0M13 14h.01M23 14h.01" stroke="#1D1B17" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>');
+
+const header = (q = '', role) => html`<header class="site"><div class="bar">
+<a href="/" class="brand">${LOGO}Faim de Lion</a>
+<nav aria-label="Menu principal">
+<a href="/recherche">Recherche</a>
+<a href="/mes-recettes/edition">Écrire une recette</a>
 <a href="/mes-recettes">Mes recettes</a>
 ${(role === 'moderator' || role === 'admin') && html`<a href="/moderation">Modération</a>`}
 ${role === 'admin' && html`<a href="/admin">Administration</a>`}
 <a href="/compte/securite">Sécurité du compte</a>
+</nav>
+<form method="get" action="/recherche" role="search">
+<label><span class="visually-hidden">Rechercher une recette</span><input name="q" type="search" value="${q}" placeholder="Une recette, un ingrédient"></label>
+<button type="submit">Rechercher</button>
+</form>
 <form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>
-</header>`;
+</div></header>`;
 
 export const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q, response.req?.session?.role)}
 ${body}`);
@@ -104,11 +110,10 @@ export const STATE_LABELS = {
 // Shared by /recette and the moderation preview; `banner` is an optional status line.
 export function recipeArticle(recipe, banner = '') {
   const published = recipe.publishedAt?.toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' });
-  return html`<article>
-${banner}<h1>${recipe.title}</h1>
-${recipe.photo ? html`<figure><img src="/photo?f=${recipe.photo.file}" alt="${recipe.title}"><figcaption>Photo : ${recipe.photo.credit}</figcaption></figure>` : ''}
-<p>Par ${author(recipe.author)}</p>
-${recipe.rating === undefined ? '' : html`<p>${recipe.rating ? ratingText(recipe.rating) : 'Pas encore de note'}</p>`}
+  return html`<article class="recipe">
+${banner}${recipe.photo ? html`<figure><img src="/photo?f=${recipe.photo.file}" alt="${recipe.title}"><figcaption>Photo : ${recipe.photo.credit}</figcaption></figure>` : ''}
+<h1>${recipe.title}</h1>
+<p class="byline">Par ${author(recipe.author)}${recipe.rating === undefined ? '' : html` · ${recipe.rating ? ratingText(recipe.rating) : 'Pas encore de note'}`}</p>
 <ul class="facts">
 <li>${recipe.minutes} min</li>
 <li>${recipe.servings} portions</li>
@@ -116,14 +121,16 @@ ${recipe.rating === undefined ? '' : html`<p>${recipe.rating ? ratingText(recipe
 ${recipe.seasons.length ? html`<li>${recipe.seasons.map((s) => SEASON_LABELS[s]).join(', ')}</li>` : ''}
 ${recipe.universe ? html`<li>${recipe.universe.label}</li>` : ''}
 </ul>
-<h2>Ingrédients</h2>
-<ul>${recipe.ingredients.map((i) => html`<li>${ingredientLine(i)}</li>`)}</ul>
-<h2>Étapes</h2>
-<ol>${recipe.steps.map((s) => html`<li><strong>${STEP_LABELS[s.kind]}${s.minutes ? ` (${s.minutes} min)` : ''}</strong> ${s.instruction}</li>`)}</ol>
+<section class="ingredients"><h2>Ingrédients</h2>
+<ul>${recipe.ingredients.map((i) => html`<li>${ingredientLine(i)}</li>`)}</ul></section>
+<section class="steps"><h2>Étapes</h2>
+<ol>${recipe.steps.map((s) => html`<li><div><strong>${STEP_LABELS[s.kind]}${s.minutes ? ` (${s.minutes} min)` : ''}</strong> ${s.instruction}</div></li>`)}</ol></section>
+<div class="meta">
 <p>Provenance : ${recipe.provenance}${recipe.sourceUrl ? html` (<a href="${recipe.sourceUrl}" rel="noopener noreferrer">source</a>)` : ''}</p>
 <p>Texte sous licence CC BY-SA 4.0 (<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.fr" rel="license">conditions</a>).</p>
 <p>Version ${recipe.version}${published ? html`, publiée le ${published}` : ''}</p>
 <button type="button" id="print">Imprimer</button>
+</div>
 </article>
 <script src="/static/fdl-print.js"></script>`;
 }
@@ -181,7 +188,7 @@ export async function recipePage(pool, request, response, id, { status = 200, er
   const importable = ['published', 'private'].includes((await recipeStates(pool, [id], request.session.accountId)).get(Number(id))?.state);
   const links = importable ? await listLinks(pool, request.session.accountId) : [];
   show(response, status, recipe.title, html`${recipeArticle(recipe, banner)}
-${links.map((l) => html`<p><a href="${l.clientId}/#fdl=${id}">Importer dans Manger!${links.length > 1 ? html` (${new URL(l.clientId).host})` : ''}</a></p>`)}
+${links.map((l) => html`<p class="import"><a href="${l.clientId}/#fdl=${id}">Importer dans Manger!${links.length > 1 ? html` (${new URL(l.clientId).host})` : ''}</a></p>`)}
 ${own ? '' : html`<form method="post" action="/recette/note">
 <input type="hidden" name="id" value="${id}">
 <label>Votre note <select name="etoiles">${[1, 2, 3, 4, 5].map((n) => html`<option value="${n}"${mine === n ? html` selected` : ''}>${n}</option>`)}</select></label>
@@ -223,12 +230,20 @@ export function catalogueRoutes(pool, config) {
       // "Les mieux notées" follows "Récemment ajoutées" and has no "Tout voir".
       rows.splice(2, 0, ['Les mieux notées', await topRated(pool), null]);
       const filled = rows.filter(([, items]) => items.length);
-      show(response, 200, 'Faim de Lion', html`<h1>Faim de Lion</h1>
-<p>Bienvenue ${request.session.displayName}.</p>
-${filled.length ? filled.map(([title, items, link]) => html`<section>
-<h2>${title}</h2>
+      const season = currentSeason();
+      show(response, 200, 'Faim de Lion', html`<section class="hero">
+<h1>Des recettes partagées, libres et sans publicité.</h1>
+<p>Bienvenue ${request.session.displayName}. Cherchez une idée pour ce soir, gardez vos recettes de famille, envoyez-les dans Manger!.</p>
+<ul class="chips">
+<li><a href="/recherche?saison=${season}">De saison : ${SEASON_LABELS[season].toLowerCase()}</a></li>
+<li><a href="/recherche?duree=30">30 min ou moins</a></li>
+<li><a href="/recherche?regime=vegetarian">Végétariennes</a></li>
+<li><a href="/mes-recettes/edition">Écrire une recette</a></li>
+</ul>
+</section>
+${filled.length ? filled.map(([title, items, link]) => html`<section class="showcase">
+<div class="showcase-head"><h2>${title}</h2>${link ? html`<a href="${link}">Tout voir</a>` : ''}</div>
 ${cards(items)}
-${link ? html`<p><a href="${link}">Tout voir</a></p>` : ''}
 </section>`) : html`<p>Aucune recette publiée pour l'instant.</p>`}`);
     },
 
@@ -246,9 +261,13 @@ ${link ? html`<p><a href="${link}">Tout voir</a></p>` : ''}
       const nextParams = new URLSearchParams(params);
       nextParams.set('apres', result.next ?? '');
       show(response, 200, 'Recherche', html`<h1>Recherche</h1>
+<div class="search">
 ${filterForm(filters, await listUniverses(pool))}
+<div class="results">
 ${result.items.length ? cards(result.items) : html`<p>Aucune recette ne correspond.</p>`}
-${result.next ? html`<p><a href="/recherche?${nextParams.toString()}">Page suivante</a></p>` : ''}`, filters.q);
+${result.next ? html`<p><a class="button" href="/recherche?${nextParams.toString()}">Page suivante</a></p>` : ''}
+</div>
+</div>`, filters.q);
     },
 
     'GET /recette': (request, response) => recipePage(pool, request, response, new URL(request.url, 'http://x').searchParams.get('id') ?? ''),

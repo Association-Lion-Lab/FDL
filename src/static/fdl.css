@@ -1,19 +1,152 @@
-:root { color-scheme: light dark; }
-body { margin: 0; font: 1rem/1.5 system-ui, sans-serif; }
-main, footer { max-width: 40rem; margin: 0 auto; padding: 1rem; }
-footer { display: flex; flex-wrap: wrap; gap: 0 1rem; font-size: 0.875rem; }
-label { display: block; margin-top: 1rem; }
-input, button { font: inherit; padding: 0.5rem; max-width: 100%; box-sizing: border-box; }
-input { width: 100%; }
-button { margin-top: 1rem; cursor: pointer; }
-.error { color: #b00020; }
-header { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin-bottom: 1rem; }
-header form { display: flex; gap: 0.5rem; align-items: end; }
-header label, header button { margin-top: 0; }
-.cards { list-style: none; padding: 0; }
-.cards li { margin-bottom: 0.75rem; }
-.cards span { display: block; font-size: 0.9rem; }
+/* Faim de Lion. System fonts only: the CSP allows no third-party font, and none is wanted (no tracker). */
+:root {
+  color-scheme: light dark;
+  --ground: #F7F5F0; --surface: #FFFFFF; --ink: #1D1B17; --muted: #5E5A52; --line: #E4E0D8; --field: #CFC9BD;
+  --accent: #1F5E3C; --accent-ink: #FFFFFF; --sun: #F2B230; --sun-soft: #FBE7B5; --error: #B00020;
+  --t0: #EADBB9; --t1: #D7E4CF; --t2: #F1D4C5; --t3: #DADFE9;
+  --radius: 14px;
+  --display: "Bricolage Grotesque", ui-rounded, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #171613; --surface: #211F1B; --ink: #F1EEE8; --muted: #B3AC9F; --line: #36332D; --field: #4A463F;
+    --accent: #7CC59A; --accent-ink: #10291B; --sun-soft: #4A3A12; --error: #FF8A80;
+    --t0: #4A3F2A; --t1: #33402F; --t2: #4A3329; --t3: #333846;
+  }
+}
+
+body { margin: 0; overflow-x: clip; font: 1rem/1.55 system-ui, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--ground); }
+a { color: var(--accent); }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 4.5vw, 2.8rem); font-weight: 800; margin: 0.5rem 0 1rem; }
+h2 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
+
+/* Reading pages stay narrow; pages with a grid of cards or a recipe widen. */
+main { max-width: 44rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; box-sizing: border-box; }
+main:has(.cards, article.recipe, .search) { max-width: 74rem; }
+
+/* Forms */
+label { display: block; margin-top: 1rem; font-weight: 600; }
+label:has(> input[type=checkbox], > input[type=radio]) { display: flex; gap: 0.5rem; align-items: center; font-weight: 400; min-height: 2.5rem; margin-top: 0.25rem; }
+input, select, textarea, button { font: inherit; box-sizing: border-box; max-width: 100%; }
+input:not([type=checkbox], [type=radio], [type=file], [type=hidden]), select, textarea {
+  display: block; width: 100%; margin-top: 0.35rem; min-height: 2.75rem; padding: 0.5rem 0.75rem;
+  border: 1px solid var(--field); border-radius: 10px; background: var(--surface); color: var(--ink); font-weight: 400;
+}
+textarea { min-height: 5rem; resize: vertical; }
+input[type=checkbox], input[type=radio] { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); margin: 0; flex: none; }
+:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+fieldset { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 0.75rem 1.25rem 1.25rem; margin: 1.5rem 0 0; }
+legend { font-family: var(--display); font-weight: 700; font-size: 1.15rem; padding: 0 0.4rem; }
+fieldset > p { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0 0.75rem; margin: 0 0 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+fieldset > p:last-of-type { border-bottom: 0; padding-bottom: 0; }
+
+button, .button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; margin-top: 1rem; margin-right: 0.5rem;
+  padding: 0 1.1rem; border-radius: 12px; border: 1px solid var(--field); background: var(--surface); color: var(--ink);
+  font-weight: 600; cursor: pointer; text-decoration: none;
+}
+button:hover, .button:hover { border-color: var(--accent); color: var(--accent); }
+/* The last submit of a form is its main action; small actions inside lists and the header stay plain. */
+form > button[type=submit]:last-of-type, .import a {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+}
+form > button[type=submit]:last-of-type:hover, .import a:hover { filter: brightness(1.12); color: var(--accent-ink); }
+li form > button[type=submit]:last-of-type, header.site form[method=post] > button {
+  background: var(--surface); border-color: var(--field); color: var(--ink);
+}
+.error { color: var(--error); font-weight: 600; }
+p[role=status] { background: var(--sun-soft); border-radius: 10px; padding: 0.6rem 0.9rem; }
+p[role=status]:empty { display: none; }
+mark { background: var(--sun-soft); color: inherit; padding: 0 0.25rem; border-radius: 4px; }
+
+/* Header of the member pages: full-bleed band inside <main>. */
+header.site { background: var(--surface); border-bottom: 1px solid var(--line); margin: -1.5rem calc(50% - 50vw) 1.5rem; padding: 0 max(1rem, calc(50vw - 36rem)); }
+header.site .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.5rem; padding: 0.75rem 0; }
+.brand { display: flex; align-items: center; gap: 0.6rem; color: var(--ink); text-decoration: none; font-family: var(--display); font-weight: 800; font-size: 1.35rem; }
+.brand svg { flex: none; }
+header.site nav { display: flex; flex-wrap: wrap; gap: 0 1.1rem; }
+header.site nav a { color: var(--ink); text-decoration: none; font-weight: 500; display: inline-block; padding: 0.6rem 0; }
+header.site nav a:hover { color: var(--accent); }
+header.site form { display: flex; gap: 0.5rem; align-items: center; margin: 0; }
+header.site form[role=search] { flex: 1 1 16rem; }
+header.site label { margin: 0; flex: 1; font-weight: 400; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+header.site input, header.site button { margin: 0; }
+
+/* Recipe cards: a tinted tile stands for the photo until cards carry one. */
+.cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1.5rem; }
+.cards li { display: flex; flex-direction: column; gap: 0.25rem; position: relative; }
+.cards li::before { content: ""; display: block; aspect-ratio: 4 / 3; border-radius: var(--radius); background: var(--t0); margin-bottom: 0.5rem; }
+.cards li:nth-child(4n+2)::before { background: var(--t1); }
+.cards li:nth-child(4n+3)::before { background: var(--t2); }
+.cards li:nth-child(4n)::before { background: var(--t3); }
+.cards a { color: var(--ink); text-decoration: none; font-weight: 600; font-size: 1.05rem; line-height: 1.3; }
+.cards a::after { content: ""; position: absolute; inset: 0; } /* the whole card is the link */
+.cards a:hover { color: var(--accent); }
+.cards span { display: block; font-size: 0.9rem; color: var(--muted); }
+.showcase { margin-top: 2.5rem; }
+.showcase-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 1rem; margin-bottom: 1rem; }
+.showcase-head h2 { margin: 0; }
+.showcase-head a { font-weight: 600; padding: 0.5rem 0; }
+.hero { padding: 1.5rem 0 0.5rem; }
+.hero h1 { max-width: 46rem; }
+.hero p { color: var(--muted); font-size: 1.15rem; max-width: 38rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.6rem; padding: 0; margin: 1.25rem 0 0; list-style: none; }
+.chips a { display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 1.1rem; border-radius: 999px; border: 1px solid var(--field); background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 500; }
+.chips a:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Search: filters beside the results, stacked on a phone. */
+.search { display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start; }
+.search .filters { flex: 1 1 14rem; max-width: 20rem; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 0.25rem 1.25rem 1.25rem; box-sizing: border-box; }
+.search .filters fieldset { border: 0; padding: 0; margin: 1rem 0 0; background: none; }
+.search .filters legend { font-family: inherit; font-size: 1rem; padding: 0; }
+.search .results { flex: 999 1 30rem; min-width: 0; }
+
+/* Recipe page */
+article.recipe { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 2.5rem; }
+.recipe .facts { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; padding: 0; margin: 0.5rem 0 1rem; }
+.recipe .facts li { display: inline-flex; align-items: center; min-height: 2.1rem; padding: 0 0.8rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 0.9rem; font-weight: 500; }
+.recipe .byline { color: var(--muted); margin: 0; }
+.recipe figure { margin: 0 0 1rem; }
+.recipe figure img { width: 100%; max-height: 28rem; object-fit: cover; border-radius: 22px; }
+.recipe figcaption { font-size: 0.85rem; color: var(--muted); margin-top: 0.35rem; }
+.recipe .ingredients { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 0.25rem 1.5rem 1rem; align-self: start; margin-top: 1.5rem; }
+.recipe .ingredients h2, .recipe .steps h2 { margin-top: 1rem; }
+.recipe .ingredients ul { list-style: none; padding: 0; margin: 0; }
+.recipe .ingredients li { padding: 0.65rem 0; border-bottom: 1px solid var(--line); }
+.recipe .ingredients li:last-child { border-bottom: 0; }
+.recipe .steps { margin-top: 1.5rem; }
+.recipe .steps ol { list-style: none; counter-reset: step; padding: 0; margin: 0; display: grid; gap: 1.25rem; }
+.recipe .steps li { counter-increment: step; display: grid; grid-template-columns: 2.5rem 1fr; gap: 1rem; font-size: 1.05rem; }
+.recipe .steps li::before { content: counter(step); width: 2.5rem; height: 2.5rem; border-radius: 50%; background: var(--sun); color: #1D1B17; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.recipe .steps strong { display: block; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.recipe .meta { color: var(--muted); font-size: 0.9rem; }
+@media (min-width: 52rem) {
+  article.recipe { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); }
+  .recipe > :not(.ingredients, .steps) { grid-column: 1 / -1; }
+}
+.import { margin: 1.5rem 0 0; }
+.import a { display: inline-flex; align-items: center; min-height: 3rem; padding: 0 1.4rem; border-radius: 12px; text-decoration: none; font-weight: 600; }
+
+form[action="/recette/note"] { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; }
+form[action="/recette/note"] select { width: auto; min-width: 6rem; }
+form[action="/recette/note"] button { margin: 0; }
+
+/* Comments */
+#commentaires > ul { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+.comment { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1.1rem; }
+.comment p { white-space: pre-line; margin: 0.35rem 0; }
+.comment form button { margin-top: 0.25rem; }
+
 figure img, img.preview { max-width: 100%; height: auto; }
-img.preview { max-height: 12rem; }
-.comment p { white-space: pre-line; }
-@media print { header, footer, button { display: none; } }
+img.preview { max-height: 12rem; border-radius: 10px; }
+
+footer { max-width: 74rem; margin: 0 auto; padding: 1.5rem 1rem 2.5rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; font-size: 0.875rem; color: var(--muted); box-sizing: border-box; }
+footer a { padding: 0.35rem 0; }
+
+@media print {
+  header.site, footer, button, .import, #commentaires, form { display: none; }
+  body { background: #FFFFFF; color: #000000; }
+  .recipe .ingredients { border: 0; padding: 0; }
+}
