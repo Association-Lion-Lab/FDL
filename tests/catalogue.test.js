@@ -250,6 +250,16 @@ describe('recipe photos', () => {
     assert.deepEqual(sent.body, bytes);
   });
 
+  it('puts the photo on its card in the showcase and the search, not on cards without one', async () => {
+    await publish({ title: 'Avec photo', photo });
+    await publish({ title: 'Sans photo' });
+    for (const path of ['/', '/recherche']) {
+      const { text } = await page(path);
+      assert.ok(text.includes(`<li><img src="/photo?f=${FILE}" alt="" loading="lazy"><a href="/recette?id=`), path);
+      assert.match(text, /<li><a href="\/recette\?id=\d+">Sans photo/, path);
+    }
+  });
+
   it('shows no figure without a photo', async () => {
     const { id } = await publish();
     assert.ok(!(await page(`/recette?id=${id}`)).text.includes('<figure>'));

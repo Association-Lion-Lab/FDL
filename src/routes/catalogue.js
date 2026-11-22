@@ -50,7 +50,7 @@ const plural = (n) => (n > 1 ? 's' : '');
 export const ratingText = ({ average, count }) => `${average.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} / 5 (${count} note${plural(count)})`;
 
 const cards = (items) => html`<ul class="cards">
-${items.map((card) => html`<li><a href="/recette?id=${card.id}">${card.title}</a>
+${items.map((card) => html`<li>${card.photo ? html`<img src="/photo?f=${card.photo}" alt="" loading="lazy">` : ''}<a href="/recette?id=${card.id}">${card.title}</a>
 <span>${card.minutes} min · ${DIET_LABELS[card.diet]} · ${author(card.author)}${card.rating ? ` · ${ratingText(card.rating)}` : ''}</span></li>
 `)}</ul>`;
 

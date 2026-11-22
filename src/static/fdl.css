@@ -81,6 +81,8 @@ header.site input, header.site button { margin: 0; }
 .cards li:nth-child(4n+2)::before { background: var(--t1); }
 .cards li:nth-child(4n+3)::before { background: var(--t2); }
 .cards li:nth-child(4n)::before { background: var(--t3); }
+.cards li:has(> img)::before { display: none; }
+.cards img { aspect-ratio: 4 / 3; width: 100%; object-fit: cover; border-radius: var(--radius); margin-bottom: 0.5rem; background: var(--t0); }
 .cards a { color: var(--ink); text-decoration: none; font-weight: 600; font-size: 1.05rem; line-height: 1.3; }
 .cards a::after { content: ""; position: absolute; inset: 0; } /* the whole card is the link */
 .cards a:hover { color: var(--accent); }

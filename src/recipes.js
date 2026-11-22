@@ -196,7 +196,7 @@ export async function searchRecipes(db, { q = '', maxMinutes = null, diet = null
   params.push(size + 1);
   // The cursor keeps PostgreSQL's microseconds, which a JS Date would round away.
   const { rows } = await db.query(
-    `SELECT r.id, v.title, v.minutes, v.diet, a.display_name AS author,
+    `SELECT r.id, v.title, v.minutes, v.diet, v.photo, a.display_name AS author,
        to_char(r.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t
      ${VISIBLE} ${where.map((w) => `AND ${w}`).join(' ')}
      ORDER BY r.published_at DESC, r.id DESC LIMIT $${params.length}`,
@@ -206,21 +206,21 @@ export async function searchRecipes(db, { q = '', maxMinutes = null, diet = null
   const last = page.at(-1);
   const next = rows.length > size ? Buffer.from(JSON.stringify({ t: last.t, i: Number(last.id) })).toString('base64url') : null;
   const ratings = await ratingsOf(db, page.map((row) => row.id));
-  const items = page.map(({ id, title, minutes, diet: d, author }) => ({ id: Number(id), title, minutes, diet: d, author, rating: ratings.get(Number(id)) ?? null }));
+  const items = page.map(({ id, title, minutes, diet: d, photo, author }) => ({ id: Number(id), title, minutes, diet: d, photo, author, rating: ratings.get(Number(id)) ?? null }));
   return { items, next };
 }
 
 // Recipes with at least 3 notes, best average first.
 export async function topRated(db, { limit = 6 } = {}) {
   const { rows } = await db.query(
-    `SELECT r.id, v.title, v.minutes, v.diet, a.display_name AS author, n.average, n.count
+    `SELECT r.id, v.title, v.minutes, v.diet, v.photo, a.display_name AS author, n.average, n.count
      ${VISIBLE.replace('WHERE', `JOIN (SELECT recipe_id, avg(stars)::float8 AS average, count(*)::int AS count
          FROM ratings GROUP BY recipe_id HAVING count(*) >= 3) n ON n.recipe_id = r.id
      WHERE`)}
      ORDER BY n.average DESC, n.count DESC, r.id DESC LIMIT $1`,
     [Math.min(50, Math.max(1, Math.trunc(limit) || 6))]
   );
-  return rows.map(({ id, title, minutes, diet, author, average, count }) => ({ id: Number(id), title, minutes, diet, author, rating: { average, count } }));
+  return rows.map(({ id, title, minutes, diet, photo, author, average, count }) => ({ id: Number(id), title, minutes, diet, photo, author, rating: { average, count } }));
 }
 
 export async function listUniverses(db) {
