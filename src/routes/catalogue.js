@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
+import { recipeStates } from '../api.js';
 import { listComments } from '../comments.js';
 import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
+import { listLinks } from '../oauth.js';
 import { canSeePhoto, photoPath } from '../photos.js';
 import { html, sendPage } from '../web.js';
 
@@ -175,7 +177,11 @@ export async function recipePage(pool, request, response, id, { status = 200, er
   // A public recipe with a pending revision shows a banner but keeps its comments.
   const listed = !own || own.state === 'published' || own.state === 'published_pending';
   const comments = listed ? await listComments(pool, { recipeId: id, viewerId: request.session.accountId }) : [];
+  // One import link per linked Manger! instance, only for what its API would hand over (client_id is a checked http(s) origin).
+  const importable = ['published', 'private'].includes((await recipeStates(pool, [id], request.session.accountId)).get(Number(id))?.state);
+  const links = importable ? await listLinks(pool, request.session.accountId) : [];
   show(response, status, recipe.title, html`${recipeArticle(recipe, banner)}
+${links.map((l) => html`<p><a href="${l.clientId}/#fdl=${id}">Importer dans Manger!${links.length > 1 ? html` (${new URL(l.clientId).host})` : ''}</a></p>`)}
 ${own ? '' : html`<form method="post" action="/recette/note">
 <input type="hidden" name="id" value="${id}">
 <label>Votre note <select name="etoiles">${[1, 2, 3, 4, 5].map((n) => html`<option value="${n}"${mine === n ? html` selected` : ''}>${n}</option>`)}</select></label>

@@ -212,7 +212,7 @@ Pages HTML réservées à une session complète pendant la bêta :
 | --- | --- |
 | `GET /` | vitrine : rangées « De saison », « Récemment ajoutées », « Rapides » (30 min au plus), « Végétariennes », 6 recettes chacune ; une rangée vide n’est pas affichée |
 | `GET /recherche` | paramètres `q`, `duree` (`15`, `30`, `60`), `regime` (`vegan`, `vegetarian`, `pescetarian`), `univers` (identifiant), `saison` (répétable : `spring`, `summer`, `autumn`, `winter`), `apres` (curseur) ; une valeur inconnue de `duree`, `regime` ou `saison` est ignorée ; curseur invalide → `400` « Lien de page invalide » |
-| `GET /recette?id=<id>` | recette publiée, dernière version ; identifiant invalide, inconnu ou recette non visible → `404` « Recette introuvable » |
+| `GET /recette?id=<id>` | recette publiée, dernière version ; identifiant invalide, inconnu ou recette non visible → `404` « Recette introuvable ». Un lien « Importer dans Manger! » vers `<client_id>/#fdl=<id>` par instance reliée au compte (`oauth_tokens`), seulement si `/api/v1/recette` lui remettrait la recette (`published` ou `private`) ; avec plusieurs instances, le lien porte l'hôte |
 
 Le texte d’une recette est publié sous licence CC BY-SA 4.0 (`text_licence = 'CC-BY-SA-4.0'`, seule valeur acceptée pour l’instant). Un compte supprimé laisse ses recettes publiques signées « Auteur anonyme ». Une nouvelle version ne change pas la date de première publication. Les commentaires sont décrits dans « Contributions » ; l'import dans Manger! viendra avec une tranche suivante. La moyenne des notes s'affiche sur la page et les cartes d'une recette (voir « Contributions »).
 

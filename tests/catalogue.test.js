@@ -170,6 +170,43 @@ describe('catalogue pages', () => {
   });
 });
 
+describe('import into Manger!', () => {
+  const link = (accountId, clientId) => pool.query(
+    'INSERT INTO oauth_tokens (token_hash, account_id, client_id) VALUES ($1, $2, $3)',
+    [Buffer.from(clientId), accountId, clientId]
+  );
+  const buttons = (text) => [...text.matchAll(/<a href="([^"]*)">Importer dans Manger!([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]);
+
+  it('link each instance the account has linked, for public and own private recipes only', async () => {
+    const me = await account();
+    const mine = `fdl_session=${await openSession(pool, me, { mfaOk: true })}`;
+    const view = async (id) => buttons(await (await get(`/recette?id=${id}`, mine)).text());
+    const { id } = await publish();
+    assert.deepEqual(await view(id), []);
+    await link(me, 'http://127.0.0.1:3001');
+    assert.deepEqual(await view(id), [[`http://127.0.0.1:3001/#fdl=${id}`, '']]);
+    await link(me, 'https://manger.example.org');
+    assert.deepEqual(await view(id), [
+      [`http://127.0.0.1:3001/#fdl=${id}`, ' (127.0.0.1:3001)'],
+      [`https://manger.example.org/#fdl=${id}`, ' (manger.example.org)'],
+    ]);
+    // Another account's link never shows here.
+    await link(await account(), 'https://autre.example.org');
+    assert.equal((await view(id)).length, 2);
+
+    const draft = (title) => saveDraft(pool, { authorId: me, draft: recipe({ title }) });
+    const own = await draft('Privée');
+    await submitVersion(pool, { recipeId: own.id, authorId: me, mode: 'private', dataDir: tmpdir() });
+    assert.equal((await view(own.id)).length, 2);
+    // Waiting for moderation: Manger! could not fetch it yet.
+    const pending = await draft('En attente');
+    await submitVersion(pool, { recipeId: pending.id, authorId: me, mode: 'public', dataDir: tmpdir() });
+    const text = await (await get(`/recette?id=${pending.id}`, mine)).text();
+    assert.ok(text.includes('En attente de modération'));
+    assert.deepEqual(buttons(text), []);
+  });
+});
+
 describe('recipe photos', () => {
   const FILE = 'a'.repeat(64);
   const bytes = Buffer.from('not really a jpeg');
