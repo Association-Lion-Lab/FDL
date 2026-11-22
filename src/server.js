@@ -113,7 +113,7 @@ export function buildRoutes(pool, log = console.error, config, passkeyLib) {
   const limiter = createLimiter({ onTrip: (fields) => securityLog('rate_limited', fields) });
   return {
     ...authRoutes(pool, config, { limiter, securityLog }),
-    ...securityRoutes(pool, config, { limiter }),
+    ...securityRoutes(pool, config, { limiter, securityLog }),
     ...passkeyRoutes(pool, config, passkeyLib, { limiter, securityLog }),
     ...adminRoutes(pool, config, { limiter, securityLog }),
     ...catalogueRoutes(pool, config),

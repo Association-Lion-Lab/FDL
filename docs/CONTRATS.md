@@ -92,6 +92,7 @@ Réservées à une session complète :
 | `POST /compte/securite/totp`, `POST /compte/securite/totp/confirmation` | activer le code à 6 chiffres (secret et QR code, puis confirmation) |
 | `POST /compte/securite/recuperation` | nouveaux codes de récupération, affichés une seule fois |
 | `POST /compte/securite/cles/suppression` | supprimer une clé ; refusé pour la dernière clé d'un `moderator` ou `admin` |
+| `GET`/`POST /compte/securite/suppression` | suppression du compte par son titulaire, confirmée par le mot de passe actuel (même limite que le changement de mot de passe). Supprime le compte, ses brouillons et recettes privées (Manger! voit `not_found` et garde ses copies), les versions non publiées et le brouillon de ses recettes publiées, ses notes, commentaires, sessions, protections et liaisons Manger!. Les recettes publiées et celles retirées par la modération restent, signées « Auteur anonyme ». Le dernier administrateur actif est refusé (`409`) ; mot de passe faux → `400` ; succès → `200`, cookie de session effacé, ligne `account_deleted` au journal de sécurité, photos orphelines nettoyées |
 | `POST /compte/securite/mot-de-passe` | changer le mot de passe ; les autres sessions du compte sont fermées |
 | `POST /cles/inscription/options`, `POST /cles/inscription/verification` | ajouter une clé d'accès (JSON) |
 | `POST /cles/confirmation/options`, `POST /cles/confirmation/verification` | confirmer son identité par clé d'accès (JSON) |
@@ -263,7 +264,7 @@ Le fichier est stocké dans `<dossier de données>/photos/<sha256 en hexadécima
 
 La page recette et l'aperçu de modération affichent la photo avec « Photo : <crédit> ».
 
-Nettoyage : un fichier cité par aucun brouillon ni aucune version d'une recette non retirée est supprimé quand il a plus de 10 minutes. Il s'exécute au démarrage, après chaque envoi ou retrait de photo, après chaque retrait par la modération et après chaque suppression d'une recette par son auteur.
+Nettoyage : un fichier cité par aucun brouillon ni aucune version d'une recette non retirée est supprimé quand il a plus de 10 minutes. Il s'exécute au démarrage, après chaque envoi ou retrait de photo, après chaque retrait par la modération, après chaque suppression d'une recette par son auteur et après chaque suppression de compte.
 
 ## Limites de la bêta à vérifier
 

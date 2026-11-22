@@ -45,14 +45,14 @@ const PAGES = {
 <li>Journal de sécurité : ${TODO('durée de conservation')}</li>
 </ul>
 <h2>Vos droits</h2>
-<p>Vous pouvez demander l'accès à vos données, leur correction, leur suppression ou leur export, ou vous opposer à un traitement, en écrivant au contact des <a href="/mentions-legales">mentions légales</a>. Il n'y a pas encore de bouton pour supprimer son compte : la demande se fait par ce contact.</p>
+<p>Vous pouvez demander l'accès à vos données, leur correction, leur suppression ou leur export, ou vous opposer à un traitement, en écrivant au contact des <a href="/mentions-legales">mentions légales</a>. Vous pouvez aussi supprimer vous-même votre compte dans « Sécurité du compte ».</p>
 <p>Si notre réponse ne vous convient pas, vous pouvez saisir la CNIL (<a href="https://www.cnil.fr">cnil.fr</a>).</p>`],
 
   '/conditions': ["Conditions d'utilisation", html`<h1>Conditions d'utilisation</h1>
 <h2>Le service</h2>
 <p>Faim de Lion est une base de recettes communautaire, gratuite, sans publicité, éditée par l'association LION LAB. Pendant la bêta, le site est réservé aux personnes invitées.</p>
 <h2>Votre compte</h2>
-<p>Un compte appartient à une seule personne. Gardez votre mot de passe pour vous. L'équipe de modération et d'administration doit utiliser une clé d'accès.</p>
+<p>Un compte appartient à une seule personne. Gardez votre mot de passe pour vous. L'équipe de modération et d'administration doit utiliser une clé d'accès. Vous pouvez supprimer votre compte à tout moment : vos recettes publiées restent alors en ligne, signées « Auteur anonyme ».</p>
 <h2>Ce que vous publiez</h2>
 <ul>
 <li>Vous publiez vos recettes sous licence Creative Commons BY-SA 4.0 : chacun peut les reprendre et les modifier en citant l'auteur et en gardant la même licence. Licence des photos et des commentaires : ${TODO('licence')}</li>
@@ -79,8 +79,10 @@ const PAGES = {
 <p>Les premières recettes d'un compte sont relues par la modération. Après trois recettes publiées, les suivantes paraissent en général directement (un lien ou un mot interdit les renvoie quand même en relecture).</p>
 <h2>Comment importer des recettes dans Manger! ?</h2>
 <p>Depuis votre instance Manger!, lancez la liaison avec Faim de Lion et acceptez-la ici. Vous pouvez la retirer dans « Sécurité du compte ».</p>
+<h2>Comment importer une recette précise ?</h2>
+<p>Une fois votre instance reliée, le bouton « Importer dans Manger! » d'une page recette ouvre Manger! avec la recette prête à importer.</p>
 <h2>Comment supprimer mon compte ?</h2>
-<p>Écrivez au contact des <a href="/mentions-legales">mentions légales</a>.</p>`],
+<p>Dans « Sécurité du compte », choisissez « Supprimer mon compte » et confirmez avec votre mot de passe. Vos brouillons, recettes privées, notes, commentaires et données personnelles sont effacés ; vos recettes publiées restent, signées « Auteur anonyme ».</p>`],
 };
 
 export const LEGAL_PATHS = Object.keys(PAGES);

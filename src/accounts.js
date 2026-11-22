@@ -96,6 +96,36 @@ export async function redeemInvitation(db, { token, email, displayName, password
   });
 }
 
+// Self-service deletion (cahier des charges §5): published recipes stay, signed "Auteur anonyme" (author_id
+// SET NULL), with their unpublished versions and draft cleared; drafts and private recipes go. A recipe removed
+// by moderation stays as its trace. Sessions, factors, ratings, comments and Manger! links cascade.
+// Locks active admins like lockAccounts in routes/admin.js, so the last one cannot leave.
+export async function deleteAccount(db, accountId) {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, role FROM accounts WHERE id = $1 OR (role = 'admin' AND banned_at IS NULL) ORDER BY id FOR UPDATE`, [accountId]);
+    const me = rows.find((r) => String(r.id) === String(accountId));
+    if (!me) throw Object.assign(new Error('Compte inconnu.'), { code: 'not_found' });
+    if (me.role === 'admin' && rows.filter((r) => r.role === 'admin').length === 1) {
+      throw Object.assign(new Error('Vous êtes le dernier administrateur : nommez-en un autre avant de partir.'), { code: 'last_admin' });
+    }
+    await client.query('DELETE FROM recipes WHERE author_id = $1 AND published_version IS NULL AND removed_at IS NULL', [accountId]);
+    await client.query(
+      `DELETE FROM recipe_versions v USING recipes r
+       WHERE v.recipe_id = r.id AND r.author_id = $1 AND v.status <> 'published'`, [accountId]);
+    await client.query('UPDATE recipes SET draft = NULL WHERE author_id = $1', [accountId]);
+    await client.query('DELETE FROM accounts WHERE id = $1', [accountId]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function redeemReset(db, { token, password }) {
   if (checkPassword(password)) return { error: 'invalid_password' };
   const passwordHash = await hashPassword(password);

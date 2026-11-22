@@ -1,14 +1,15 @@
-import { checkPassword, hashPassword, verifyPassword } from '../accounts.js';
+import { checkPassword, deleteAccount, hashPassword, verifyPassword } from '../accounts.js';
 import { createRecoveryCodes, startTotp, verifyTotp } from '../mfa.js';
 import { listLinks, revokeLink } from '../oauth.js';
-import { factorChangeNeedsElevation } from '../sessions.js';
+import { sweepPhotos } from '../photos.js';
+import { clearSessionCookie, factorChangeNeedsElevation } from '../sessions.js';
 import { html, raw, readBody, redirect, sendPage } from '../web.js';
 import { elevationUrl } from './admin.js';
 import { clientIp, field, tooMany } from './auth.js';
 
 const group4 = (secret) => secret.match(/.{1,4}/g).join(' ');
 
-export function securityRoutes(pool, config, { limiter }) {
+export function securityRoutes(pool, config, { limiter, securityLog = () => {} }) {
   const page = (response, title, body, status = 200) => sendPage(response, status, title, html`<h1>${title}</h1>
 ${body}
 <p><a href="/">Retour à l'accueil</a></p>
@@ -52,8 +53,20 @@ ${links.length ? html`<ul>${links.map((l) => html`<li>${l.clientId}, reliée le 
 <label>Ancien mot de passe <input name="current" type="password" required></label>
 <label>Nouveau mot de passe (12 caractères au moins) <input name="password" type="password" required></label>
 <button type="submit">Changer mon mot de passe</button>
-</form>`, status);
+</form>
+<h2>Supprimer mon compte</h2>
+<p><a href="/compte/securite/suppression">Supprimer mon compte</a></p>`, status);
   }
+
+  const deletionPage = (response, { error = null, status = 200 } = {}) => page(response, 'Supprimer mon compte', html`
+${error ? html`<p class="error" role="alert">${error}</p>` : ''}
+<p>La suppression est définitive. Sont effacés : votre adresse e-mail, votre nom, vos brouillons et recettes privées, vos notes, vos commentaires, vos protections de connexion et l'accès de vos instances Manger!.</p>
+<p>Vos recettes publiées restent en ligne, signées « Auteur anonyme ». Les foyers qui ont importé une de vos recettes dans Manger! gardent leur copie.</p>
+<form method="post" action="/compte/securite/suppression">
+<label>Mot de passe actuel <input name="current" type="password" autocomplete="current-password" required></label>
+<button type="submit">Supprimer définitivement mon compte</button>
+</form>
+<p><a href="/compte/securite">Annuler</a></p>`, status);
 
   const showCodes = (response, codes) => page(response, 'Codes de récupération', html`
 <p>Notez ces codes dans un endroit sûr : ils ne seront plus affichés. Chacun ne sert qu'une fois.</p>
@@ -140,6 +153,30 @@ ou ouvrez <a href="${started.uri}">le lien otpauth</a>.</p>
     'POST /compte/securite/recuperation': elevated(async (request, response) => {
       showCodes(response, await createRecoveryCodes(pool, request.session.accountId));
     }),
+
+    'GET /compte/securite/suppression': (request, response) => deletionPage(response),
+
+    // The password confirms the person at the keyboard; the limiter shares the password-change budget.
+    'POST /compte/securite/suppression': async (request, response) => {
+      if (limited(request, 'mot-de-passe')) return tooMany(response);
+      const id = request.session.accountId;
+      const { rows: [account] } = await pool.query('SELECT password_hash FROM accounts WHERE id = $1', [id]);
+      if (!(await verifyPassword(field(await readBody(request), 'current'), account.password_hash))) {
+        return deletionPage(response, { error: 'Mot de passe incorrect.', status: 400 });
+      }
+      try {
+        await deleteAccount(pool, id);
+      } catch (error) {
+        if (error.code === 'last_admin') return deletionPage(response, { error: error.message, status: 409 });
+        throw error;
+      }
+      securityLog('account_deleted', { accountId: id, ip: clientIp(request) });
+      await sweepPhotos(pool, config.dataDir).catch((e) => console.error(`photos : nettoyage impossible (${e.code ?? 'inconnu'})`));
+      response.setHeader('set-cookie', clearSessionCookie());
+      sendPage(response, 200, 'Compte supprimé', html`<h1>Compte supprimé</h1>
+<p>Votre compte et vos données personnelles sont effacés. Vos recettes publiées restent, signées « Auteur anonyme ».</p>
+<p><a href="/connexion">Retour à la connexion</a></p>`);
+    },
 
     'POST /compte/securite/mot-de-passe': async (request, response) => {
       if (limited(request, 'mot-de-passe')) return tooMany(response);
