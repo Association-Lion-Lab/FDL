@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { createLink, hashToken } from '../accounts.js';
 import { verifyTotp } from '../mfa.js';
 import { elevateSession, requireElevated } from '../sessions.js';
-import { html, raw, readBody, redirect, sendPage } from '../web.js';
+import { html, raw, readBody, redirect } from '../web.js';
+import { show } from './catalogue.js';
 import { clientIp, field, form, tooMany } from './auth.js';
 
 const copyScript = readFileSync(new URL('../static/fdl-copy.js', import.meta.url));
@@ -32,7 +33,7 @@ export function adminRoutes(pool, config, { limiter, securityLog }) {
   const staffOnly = (handler) => (request, response) =>
     request.session.role === 'admin'
       ? handler(request, response)
-      : sendPage(response, 403, 'Accès refusé', html`<h1>Accès refusé</h1>
+      : show(response, 403, 'Accès refusé', html`<h1>Accès refusé</h1>
 <p>Cette page est réservée aux administrateurs.</p>`);
 
   // POST handlers send a stale session to re-authenticate, then back to the section's page.
@@ -43,12 +44,12 @@ export function adminRoutes(pool, config, { limiter, securityLog }) {
   };
 
   const refuse = (response, status, message, back) =>
-    sendPage(response, status, 'Action refusée', html`<h1>Action refusée</h1>
+    show(response, status, 'Action refusée', html`<h1>Action refusée</h1>
 <p class="error" role="alert">${message}</p>
 <p><a href="${back}">Retour</a></p>`);
 
   // Shows a one-time link: the page is no-store and the token is never stored or listed.
-  const showLink = (response, title, path, token) => sendPage(response, 200, title, html`<h1>${title}</h1>
+  const showLink = (response, title, path, token) => show(response, 200, title, html`<h1>${title}</h1>
 <p>Ce lien ne sera plus affiché. Copiez-le maintenant.</p>
 <input id="link" readonly value="${`${config.origin}${path}?code=${token}`}">
 <button type="button" id="copy">Copier</button>
@@ -124,7 +125,7 @@ export function adminRoutes(pool, config, { limiter, securityLog }) {
 
   const universesPage = async (response, status = 200, error = null) => {
     const { rows } = await pool.query('SELECT slug, label FROM universes ORDER BY label');
-    sendPage(response, status, 'Univers', html`<h1>Univers</h1>
+    show(response, status, 'Univers', html`<h1>Univers</h1>
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
 <form method="post" action="/admin/univers">
 <label>Identifiant <input name="slug" required maxlength="40" pattern="[-a-z0-9]{1,40}"></label>
@@ -139,7 +140,7 @@ ${rows.map((r) => html`<tr><td>${r.slug}</td><td>${r.label}</td></tr>`)}
   };
 
   return {
-    'GET /admin': staffOnly((request, response) => sendPage(response, 200, 'Administration', html`<h1>Administration</h1>
+    'GET /admin': staffOnly((request, response) => show(response, 200, 'Administration', html`<h1>Administration</h1>
 <ul>
 <li><a href="/admin/invitations">Invitations</a></li>
 <li><a href="/admin/comptes">Comptes</a></li>
@@ -160,7 +161,7 @@ ${rows.map((r) => html`<tr><td>${r.slug}</td><td>${r.label}</td></tr>`)}
                 CASE WHEN revoked_at IS NOT NULL THEN 'revoked' WHEN used_at IS NOT NULL THEN 'used'
                      WHEN expires_at <= now() THEN 'expired' ELSE 'pending' END AS state
          FROM access_links WHERE kind = 'invitation' ORDER BY created_at DESC`);
-      sendPage(response, 200, 'Invitations', html`<h1>Invitations</h1>
+      show(response, 200, 'Invitations', html`<h1>Invitations</h1>
 <form method="post" action="/admin/invitations">
 <label>Rôle <select name="role">${ROLES.map((r) => html`<option value="${r}">${r}</option>`)}</select></label>
 <label>Note <input name="note" maxlength="200"></label>
@@ -212,7 +213,7 @@ ${rows.map((r) => html`<tr><td>${r.note}</td><td>${r.role ?? 'member'}</td><td>$
         `SELECT id, display_name, email, role, banned_at IS NOT NULL AS banned, created_at,
                 EXISTS (SELECT 1 FROM totp_secrets t WHERE t.account_id = a.id AND t.confirmed_at IS NOT NULL) AS mfa
          FROM accounts a ORDER BY created_at, id`);
-      sendPage(response, 200, 'Comptes', html`<h1>Comptes</h1>
+      show(response, 200, 'Comptes', html`<h1>Comptes</h1>
 <table>
 <tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Double auth</th><th>Banni</th><th>Créé le</th><th>Actions</th></tr>
 ${rows.map((r) => html`<tr><td>${r.display_name}</td><td>${r.email}</td><td>${r.role}</td><td>${r.mfa ? 'oui' : 'non'}</td><td>${r.banned ? 'oui' : 'non'}</td><td>${when(r.created_at)}</td>
@@ -269,7 +270,7 @@ ${rows.map((r) => html`<tr><td>${r.display_name}</td><td>${r.email}</td><td>${r.
       const { rows } = await pool.query(
         `SELECT l.at, l.action, l.target, l.detail, a.display_name AS actor
          FROM admin_log l LEFT JOIN accounts a ON a.id = l.actor_id ORDER BY l.id DESC LIMIT 100`);
-      sendPage(response, 200, 'Journal', html`<h1>Journal</h1>
+      show(response, 200, 'Journal', html`<h1>Journal</h1>
 <table>
 <tr><th>Date</th><th>Acteur</th><th>Action</th><th>Cible</th><th>Détail</th></tr>
 ${rows.map((r) => html`<tr><td>${when(r.at)}</td><td>${r.actor}</td><td>${r.action}</td><td>${r.target}</td><td>${r.detail ? JSON.stringify(r.detail) : ''}</td></tr>`)}

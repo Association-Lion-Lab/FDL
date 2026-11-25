@@ -6,14 +6,13 @@ import { clearSessionCookie, factorChangeNeedsElevation } from '../sessions.js';
 import { html, raw, readBody, redirect, sendPage } from '../web.js';
 import { elevationUrl } from './admin.js';
 import { clientIp, field, tooMany } from './auth.js';
+import { show } from './catalogue.js';
 
 const group4 = (secret) => secret.match(/.{1,4}/g).join(' ');
 
 export function securityRoutes(pool, config, { limiter, securityLog = () => {} }) {
-  const page = (response, title, body, status = 200) => sendPage(response, status, title, html`<h1>${title}</h1>
-${body}
-<p><a href="/">Retour à l'accueil</a></p>
-<form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>`);
+  const page = (response, title, body, status = 200) => show(response, status, title, html`<h1>${title}</h1>
+${body}`);
 
   async function overview(request, response, { error = null, notice = null, status = 200 } = {}) {
     const id = request.session.accountId;
@@ -30,9 +29,12 @@ ${mandatory && !passkeys.length ? html`<p role="status">Votre rôle exige une cl
 ${!staff && html`<p>Tout est facultatif ici : ajoutez une protection si vous le souhaitez, ou <a href="/">retournez à l'accueil</a>.</p>`}
 ${notice ? html`<p role="status">${notice}</p>` : ''}
 ${error ? html`<p class="error" role="alert">${error}</p>` : ''}
+<section class="panel">
 <h2>Code à 6 chiffres</h2>
 <p>${totp ? 'Activé.' : 'Pas activé.'}</p>
 ${totp ? '' : html`<form method="post" action="/compte/securite/totp"><button type="submit">Activer le code à 6 chiffres</button></form>`}
+</section>
+<section class="panel">
 <h2>Clés d'accès</h2>
 ${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}
 <form method="post" action="/compte/securite/cles/suppression"><input type="hidden" name="id" value="${p.id}"><button type="submit">Supprimer</button></form></li>`)}</ul>` : html`<p>Aucune clé d'accès.</p>`}
@@ -42,20 +44,30 @@ ${passkeys.length ? html`<ul>${passkeys.map((p) => html`<li>${p.name}
 <ul id="passkey-codes"></ul>
 <script src="/static/simplewebauthn.js"></script>
 <script src="/static/fdl-passkeys.js"></script>
+</section>
+<section class="panel">
 <h2>Instances Manger! reliées</h2>
 ${links.length ? html`<ul>${links.map((l) => html`<li>${l.clientId}, reliée le ${l.createdAt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}
 <form method="post" action="/compte/securite/manger/retrait"><input type="hidden" name="client_id" value="${l.clientId}"><button type="submit">Retirer l'accès</button></form></li>`)}</ul>` : html`<p>Aucune instance reliée.</p>`}
+</section>
+<section class="panel">
 <h2>Codes de récupération</h2>
 <p>Codes restants : ${codes.n}.</p>
 <form method="post" action="/compte/securite/recuperation"><button type="submit">Nouveaux codes de récupération</button></form>
+</section>
+<section class="panel">
 <h2>Mot de passe</h2>
 <form method="post" action="/compte/securite/mot-de-passe">
 <label>Ancien mot de passe <input name="current" type="password" required></label>
 <label>Nouveau mot de passe (12 caractères au moins) <input name="password" type="password" required></label>
 <button type="submit">Changer mon mot de passe</button>
 </form>
+</section>
+<section class="panel danger">
 <h2>Supprimer mon compte</h2>
-<p><a href="/compte/securite/suppression">Supprimer mon compte</a></p>`, status);
+<p>Efface votre compte et vos données personnelles. Vos recettes publiées restent en ligne, sans votre nom.</p>
+<p><a href="/compte/securite/suppression">Supprimer mon compte</a></p>
+</section>`, status);
   }
 
   const deletionPage = (response, { error = null, status = 200 } = {}) => page(response, 'Supprimer mon compte', html`

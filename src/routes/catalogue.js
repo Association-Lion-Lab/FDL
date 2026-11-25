@@ -7,7 +7,7 @@ import { getOwnRecipe } from '../contributions.js';
 import { SEASONS, currentSeason, getRecipe, listUniverses, searchRecipes, topRated } from '../recipes.js';
 import { listLinks } from '../oauth.js';
 import { canSeePhoto, photoPath } from '../photos.js';
-import { html, raw, sendPage } from '../web.js';
+import { LOGO, html, sendPage } from '../web.js';
 
 const printScript = readFileSync(new URL('../static/fdl-print.js', import.meta.url));
 const photoScript = readFileSync(new URL('../static/fdl-photo.js', import.meta.url));
@@ -20,8 +20,6 @@ const DURATIONS = ['15', '30', '60'];
 const FILTER_DIETS = ['vegan', 'vegetarian', 'pescetarian'];
 const MAX_ID = 9223372036854775807n;
 const author = (name) => name ?? 'Auteur anonyme';
-
-const LOGO = raw('<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="18" fill="#F2B230"/><path d="M11 21c2 4 12 4 14 0M13 14h.01M23 14h.01" stroke="#1D1B17" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>');
 
 const header = (q = '', role) => html`<header class="site"><div class="bar">
 <a href="/" class="brand">${LOGO}Faim de Lion</a>
@@ -40,8 +38,7 @@ ${role === 'admin' && html`<a href="/admin">Administration</a>`}
 <form method="post" action="/deconnexion"><button type="submit">Me déconnecter</button></form>
 </div></header>`;
 
-export const show = (response, status, title, body, q) => sendPage(response, status, title, html`${header(q, response.req?.session?.role)}
-${body}`);
+export const show = (response, status, title, body, q) => sendPage(response, status, title, body, header(q, response.req?.session?.role));
 
 const notFound = (response) => show(response, 404, 'Recette introuvable', html`<h1>Recette introuvable</h1>
 <p>Cette recette n'existe pas ou n'est plus visible.</p>`);

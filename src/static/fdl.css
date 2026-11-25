@@ -52,9 +52,19 @@ form > button[type=submit]:last-of-type, .import a {
   background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
 }
 form > button[type=submit]:last-of-type:hover, .import a:hover { filter: brightness(1.12); color: var(--accent-ink); }
-li form > button[type=submit]:last-of-type, header.site form[method=post] > button {
+:is(li, td, .panel) form > button[type=submit]:last-of-type, header.site form[method=post] > button {
   background: var(--surface); border-color: var(--field); color: var(--ink);
 }
+:is(li, td, .panel) form > button[type=submit]:last-of-type:hover, header.site form[method=post] > button:hover { filter: none; border-color: var(--accent); color: var(--accent); }
+/* Security page: the password change is the one real form, it keeps the main colour. */
+.panel form:has(input[type=password]) > button[type=submit]:last-of-type { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* Security page: one card per protection; account deletion set apart. */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 0.25rem 1.5rem 1.25rem; margin-top: 1.25rem; }
+.panel h2 { margin-top: 1rem; }
+.panel > ul > li { background: var(--ground); }
+.panel.danger { border-color: var(--error); }
+.panel.danger h2, .panel.danger a { color: var(--error); }
 .error { color: var(--error); font-weight: 600; }
 p[role=status] { background: var(--sun-soft); border-radius: 10px; padding: 0.6rem 0.9rem; }
 p[role=status]:empty { display: none; }
@@ -140,6 +150,30 @@ form[action="/recette/note"] button { margin: 0; }
 .comment { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1.1rem; }
 .comment p { white-space: pre-line; margin: 0.35rem 0; }
 .comment form button { margin-top: 0.25rem; }
+
+/* Lists of items with their actions (Mes recettes, security, moderation): one card per item. */
+:is(main, .panel) > ul:has(> li > form, > li > span) { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+:is(main, .panel) > ul:has(> li > form, > li > span) > li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1.1rem; }
+:is(main, .panel) > ul > li > a:first-child { font-weight: 600; }
+:is(main, .panel) > ul > li > span { font-size: 0.875rem; padding: 0.1rem 0.7rem; border-radius: 999px; background: var(--sun-soft); }
+:is(main, .panel) > ul > li > p { flex-basis: 100%; margin: 0; }
+:is(main, .panel) > ul > li > form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; margin: 0; }
+:is(main, .panel) > ul > li > form label { margin: 0; flex: 1 1 12rem; }
+:is(main, .panel) > ul > li > form button { margin: 0; }
+:is(main, .panel) > ul > li > form:last-of-type, :is(main, .panel) > ul > li > a:last-of-type:not(:first-child) { margin-left: auto; }
+/* Moderation: each decision form (reason + button) on its own line under the item. */
+:is(main, .panel) > ul > li > form:has(label) { flex-basis: 100%; margin-left: 0; }
+
+/* Administration tables: they scroll sideways on a phone instead of widening the page. */
+main:has(table) { max-width: 74rem; }
+table { display: block; overflow-x: auto; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 1rem 0; }
+th, td { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+th, td:not(:has(form)) { white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td form { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0.35rem 0.35rem 0; }
+td form select { width: auto; min-height: 2.25rem; margin: 0; }
+td button { min-height: 2.25rem; margin: 0; font-size: 0.9rem; }
 
 figure img, img.preview { max-width: 100%; height: auto; }
 img.preview { max-height: 12rem; border-radius: 10px; }

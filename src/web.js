@@ -24,7 +24,10 @@ export function html(strings, ...values) {
   return raw(strings.reduce((out, s, i) => out + s + (i < values.length ? render(values[i]) : ''), ''));
 }
 
-export function sendPage(response, status, title, body) {
+export const LOGO = raw('<svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="18" fill="#F2B230"/><path d="M11 21c2 4 12 4 14 0M13 14h.01M23 14h.01" stroke="#1D1B17" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>');
+
+// header: the member band (show in routes/catalogue.js); other pages get the site name alone.
+export function sendPage(response, status, title, body, header = html`<header class="site"><div class="bar"><a href="/" class="brand">${LOGO}Faim de Lion</a></div></header>`) {
   response.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
@@ -42,6 +45,7 @@ export function sendPage(response, status, title, body) {
 </head>
 <body>
 <main>
+${header}
 ${body}
 </main>
 <footer>
